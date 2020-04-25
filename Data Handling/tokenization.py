@@ -43,13 +43,35 @@ def load_sentencepiece(lowercase=True, overwrite=False):
         tokenizer = SentencePieceBPETokenizer()
 
 
-# TOKENIZING FUNCTIONS
+# MAIN TOKENIZING FUNCTION
 def tokenize(sentence, full_token=False):
     global tokenizer, spacyNLP
     # Check if there is no initialized tokenizer
     if tokenizer is None and spacyNLP is None:
         check_huggingface() # Favor huggingface since it is faster and more flexible
+    
+    if isinstance(sentence, list):
+        # Tokenize multi level list with recursive function
+        return(traverseList(sentence))
+    else:
+        return(base_tokenize(sentence, full_token=full_token))
 
+# Recursive function to get lengths of jagged list
+def traverseList(sentence):
+    currentLevel = []
+    for i in range(len(sentence)):
+        if isinstance(sentence[i], list):
+            nextLevel = traverseList(sentence[i])
+            if nextLevel is None:
+                currentLevel.append(base_tokenize(sentence[i]))
+            else:
+                currentLevel.append(nextLevel)
+        else:
+            return None
+    return currentLevel
+
+# Tokenizes setence or list of sentences
+def base_tokenize(sentence, full_token = False):
     # Do tokenization based on avaliable tokenizer
     if tokenizer is not None:
         if isinstance(sentence, list):
