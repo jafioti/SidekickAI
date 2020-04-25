@@ -1,3 +1,4 @@
+# Sidekick Vocab v1.0
 # This file contains the Vocab class and teh function to load the BertWordPeice vocab
 
 class Vocab:

@@ -1,3 +1,4 @@
+# Sidekick Tokenization v1.1
 spacyNLP = None
 tokenizer = None
 

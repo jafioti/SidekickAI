@@ -5,3 +5,7 @@ ______________________________________________
 
 ConstrainedSeq2Seq: Model that has an RNN encoder and decoder, as well as a feedforward internal latent transformation. 
 The encoder and decoder are trained together as an autoencoder, then they are frozen and the model is trained end to end to train the latent transformation.
+
+Seq2SeqWithAttention: Traditional Seq2Seq model with Luong Attention
+
+PointerGeneratorNetwork: Similar to Seq2SeqWithAttention but has a copy mechanism to copy text from the input directly to the output as implemented in "Pointer-Generator Networks" Paper

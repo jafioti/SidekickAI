@@ -1,3 +1,4 @@
+# Sidekick Batching v1.0
 import itertools
 from torch import LongTensor, BoolTensor, Tensor
 # This file holds functions to convert sentence pair batches to structured tensors to feed into models
