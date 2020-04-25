@@ -1,6 +1,7 @@
 # Sidekick Batching v1.0
 import itertools
 from torch import LongTensor, BoolTensor, Tensor
+import tokenization
 # This file holds functions to convert sentence pair batches to structured tensors to feed into models
 
 # Makes binary (0, 1) matrix for batch depending on if token is padding (0 if so, 1 if not)
@@ -19,14 +20,22 @@ def binary_pad_matrix(input_batch, pad_value):
 def zeroPadding(input_batch, fillvalue):
     return list(itertools.zip_longest(*input_batch, fillvalue=fillvalue))
 
-# Tokenizes and gets indexes for sentence
-def indexesFromSentence(vocab, sentence, tokenizationFunction):
-    return [vocab.word2index[word] for word in tokenizationFunction(sentence)] + [vocab.EOS_token]
+# Recursivly gets indexes
+def indexes_from_tokens(tokens, vocab):
+    if isinstance(tokens[0], list):
+        current = []
+        for i in range(len(tokens)):
+            current.append(indexes_from_tokens(vocab, tokens[i]))
+        return current
+    else:
+        return [vocab.word2index[word] for word in tokens] + [vocab.EOS_token]
 
 # Returns padded input sequence tensor and lengths
 def input_tensor(input_batch, vocab, tokenizationFunction, return_lengths=False):
+    # Get tokens
+    tokens = tokenization.tokenize(input_batch)
     # Get indexes
-    indexes_batch = [indexesFromSentence(vocab, sentence, tokenizationFunction) for sentence in input_batch]
+    indexes_batch = indexes_from_tokens(tokens, vocab)
     # Pad inputs to longest length
     padList = zeroPadding(indexes_batch, fillvalue=vocab.PAD_token)
     padVar = LongTensor(padList)
@@ -39,8 +48,10 @@ def input_tensor(input_batch, vocab, tokenizationFunction, return_lengths=False)
 
 # Returns padded target sequence tensor, padding mask, and max target length
 def output_tensor(input_batch, vocab, tokenizationFunction, return_mask=False, return_max_target_length=False):
+    # Get tokens
+    tokens = tokenization.tokenize(input_batch)
     # Get indexes
-    indexes_batch = [indexesFromSentence(vocab, sentence, tokenizationFunction) for sentence in input_batch]
+    indexes_batch = indexes_from_tokens(tokens, vocab)
     if return_max_target_length:
         # Get max length
         max_target_len = max([len(indexes) for indexes in indexes_batch])
