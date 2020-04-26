@@ -52,9 +52,13 @@ class Vocab:
             self.addWord(word)
 
 #Creates a vocab for the bert wordpeice tokenizer
-def getBertWordPieceVocab():
+def getBertWordPieceVocab(additional_tokens=None):
+    assert additional_tokens is None or (isinstance(additional_tokens, list) and isinstance(additional_tokens[0], str))
     voc = Vocab("bertVocab")
     vocabLines = open("bert-base-uncased-vocab.txt", "rb").readlines()
     for i in range(len(vocabLines)):
         voc.addWord(vocabLines[i].decode("utf-8").replace("\n", "").strip())
+    if additional_tokens is not None:
+        for i in range(len(additional_tokens)):
+            voc.addWord(additional_tokens[i])
     return(voc)

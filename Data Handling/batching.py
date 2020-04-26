@@ -5,7 +5,7 @@ import tokenization
 # This file holds functions to convert sentence pair batches to structured tensors to feed into models
 
 # Makes binary (0, 1) matrix for batch depending on if token is padding (0 if so, 1 if not)
-def binary_pad_matrix(input_batch, pad_value):
+def pad_mask(input_batch, pad_value):
     m = []
     for i, seq in enumerate(input_batch):
         m.append([])
@@ -17,27 +17,29 @@ def binary_pad_matrix(input_batch, pad_value):
     return m
 
 # Pads all inputs to longest input
-def zeroPadding(input_batch, fillvalue):
+def pad_batch(input_batch, fillvalue):
     return list(itertools.zip_longest(*input_batch, fillvalue=fillvalue))
 
 # Recursivly gets indexes
 def indexes_from_tokens(tokens, vocab):
+    if tokens is None:
+        return
+    if len(tokens) == 0:
+        return
     if isinstance(tokens[0], list):
         current = []
         for i in range(len(tokens)):
-            current.append(indexes_from_tokens(vocab, tokens[i]))
+            nextLevel = indexes_from_tokens(tokens[i], vocab)
+            if nextLevel is not None:
+                current.append(nextLevel)
         return current
     else:
         return [vocab.word2index[word] for word in tokens] + [vocab.EOS_token]
 
 # Returns padded input sequence tensor and lengths
-def input_tensor(input_batch, vocab, tokenizationFunction, return_lengths=False):
-    # Get tokens
-    tokens = tokenization.tokenize(input_batch)
-    # Get indexes
-    indexes_batch = indexes_from_tokens(tokens, vocab)
+def input_tensor(indexes_batch, vocab, return_lengths=False):
     # Pad inputs to longest length
-    padList = zeroPadding(indexes_batch, fillvalue=vocab.PAD_token)
+    padList = pad_batch(indexes_batch, fillvalue=vocab.PAD_token)
     padVar = LongTensor(padList)
     if return_lengths:
         # Get lengths of each sentence in batch
@@ -47,38 +49,35 @@ def input_tensor(input_batch, vocab, tokenizationFunction, return_lengths=False)
         return padVar
 
 # Returns padded target sequence tensor, padding mask, and max target length
-def output_tensor(input_batch, vocab, tokenizationFunction, return_mask=False, return_max_target_length=False):
-    # Get tokens
-    tokens = tokenization.tokenize(input_batch)
-    # Get indexes
-    indexes_batch = indexes_from_tokens(tokens, vocab)
+def output_tensor(indexes_batch, vocab, return_mask=False, return_max_target_length=False):
     if return_max_target_length:
         # Get max length
         max_target_len = max([len(indexes) for indexes in indexes_batch])
     # Pad batch
-    padList = zeroPadding(indexes_batch, vocab.PAD_token)
+    padList = pad_batch(indexes_batch, vocab.PAD_token)
     padVar = LongTensor(padList)
     return_set = [padVar]
     if return_mask:
         # Get binary pad mask
-        mask = binary_pad_matrix(padList, pad_value=vocab.PAD_token)
+        mask = pad_mask(padList, pad_value=vocab.PAD_token)
         mask = BoolTensor(mask)
         return_set.append(mask)
     if return_max_target_length:
         return_set.append(max_target_len)
     return tuple(return_set)
 
-# Returns all items for a given batch of pairs
-def pair_batch_to_training_data(vocab, pair_batch, tokenizationFunction, return_input_lengths=False, return_mask=False, return_max_target_length=False):
-    # Sort batch by length
-    pair_batch.sort(key=lambda x: len(tokenizationFunction(x[0])), reverse=True)
-    # Split into input and output batch
-    input_batch, output_batch = [], []
-    for pair in pair_batch:
-        input_batch.append(pair[0])
-        output_batch.append(pair[1])
-    # Get vectorized input and input lengths
-    inp = input_tensor(input_batch, vocab, tokenizationFunction, return_lengths=return_input_lengths)
-    # Get vectorized output, output mask, and max_target_len
-    output = output_tensor(output_batch, vocab, tokenizationFunction, return_mask=return_mask, return_max_target_length=return_max_target_length)
-    return inp + output # Input contains all requested input objects, output contains all requested output objects
+# Sort batch of inputs and outputs by length
+def sort_pair_batch_by_length(pair_batch):
+    pair_batch.sort(key=lambda x: len(x[0]), reverse=True)
+    return(pair_batch)
+
+# Returns all items for a given batch of pairs of indexed sentences
+# If input, returns padded input batch and length vector
+# If target, returns padded target batch, pad mask, and max length
+def sentence_batch_to_training_data(vocab, input_batch, is_target):
+    if is_target:
+        # Get vectorized output, output mask, and max_target_len
+        return(output_tensor(input_batch, vocab, return_mask=True, return_max_target_length=True))
+    else:
+        # Get vectorized input and input lengths
+        return(input_tensor(input_batch, vocab, return_lengths=True))

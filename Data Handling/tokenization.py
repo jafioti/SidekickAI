@@ -67,7 +67,7 @@ def traverseList(sentence):
             else:
                 currentLevel.append(nextLevel)
         else:
-            return None
+            return base_tokenize(sentence)
     return currentLevel
 
 # Tokenizes setence or list of sentences
