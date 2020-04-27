@@ -32,9 +32,11 @@ def check_huggingface():
 
 def load_bert_wordpiece(lowercase=True, overwrite=False):
     global tokenizer
+    import os
+    current_dir = os.path.dirname(os.path.abspath(__file__))
     if tokenizer is None or overwrite:
         from tokenizers import BertWordPieceTokenizer
-        tokenizer = BertWordPieceTokenizer("bert-base-uncased-vocab.txt", lowercase=lowercase)
+        tokenizer = BertWordPieceTokenizer(os.path.join(current_dir, "bert-base-uncased-vocab.txt"), lowercase=lowercase)
 
 def load_sentencepiece(lowercase=True, overwrite=False):
     global tokenizer
@@ -85,7 +87,7 @@ def base_tokenize(sentence, full_token = False):
             if full_token:
                 return(tokenizer.encode(sentence))
             else:
-                return(tokenizer.encode(sentence).tokens)
+                return(tokenizer.encode(sentence).tokens[1:-1])
             
     elif spacyNLP is not None:
         if isinstance(sentence, list):

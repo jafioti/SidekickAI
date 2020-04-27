@@ -55,7 +55,9 @@ class Vocab:
 def getBertWordPieceVocab(additional_tokens=None):
     assert additional_tokens is None or (isinstance(additional_tokens, list) and isinstance(additional_tokens[0], str))
     voc = Vocab("bertVocab")
-    vocabLines = open("bert-base-uncased-vocab.txt", "rb").readlines()
+    import os
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    vocabLines = open(os.path.join(current_dir, "bert-base-uncased-vocab.txt"), "rb").readlines()
     for i in range(len(vocabLines)):
         voc.addWord(vocabLines[i].decode("utf-8").replace("\n", "").strip())
     if additional_tokens is not None:

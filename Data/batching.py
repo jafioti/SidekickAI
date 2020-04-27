@@ -1,7 +1,7 @@
 # Sidekick Batching v1.0
 import itertools
 from torch import LongTensor, BoolTensor, Tensor
-import tokenization
+import Sidekick.Data.tokenization
 # This file holds functions to convert sentence pair batches to structured tensors to feed into models
 
 # Makes binary (0, 1) matrix for batch depending on if token is padding (0 if so, 1 if not)
@@ -37,7 +37,7 @@ def indexes_from_tokens(tokens, vocab):
         return [vocab.word2index[word] for word in tokens] + [vocab.EOS_token]
 
 # Returns padded input sequence tensor and lengths
-def input_tensor(indexes_batch, vocab, return_lengths=False):
+def input_batch_to_train_data(indexes_batch, vocab, return_lengths=False):
     # Pad inputs to longest length
     padList = pad_batch(indexes_batch, fillvalue=vocab.PAD_token)
     padVar = LongTensor(padList)
@@ -49,7 +49,7 @@ def input_tensor(indexes_batch, vocab, return_lengths=False):
         return padVar
 
 # Returns padded target sequence tensor, padding mask, and max target length
-def output_tensor(indexes_batch, vocab, return_mask=False, return_max_target_length=False):
+def output_batch_to_train_data(indexes_batch, vocab, return_mask=False, return_max_target_length=False):
     if return_max_target_length:
         # Get max length
         max_target_len = max([len(indexes) for indexes in indexes_batch])
@@ -71,13 +71,21 @@ def sort_pair_batch_by_length(pair_batch):
     pair_batch.sort(key=lambda x: len(x[0]), reverse=True)
     return(pair_batch)
 
-# Returns all items for a given batch of pairs of indexed sentences
-# If input, returns padded input batch and length vector
-# If target, returns padded target batch, pad mask, and max length
-def sentence_batch_to_training_data(vocab, input_batch, is_target):
-    if is_target:
-        # Get vectorized output, output mask, and max_target_len
-        return(output_tensor(input_batch, vocab, return_mask=True, return_max_target_length=True))
+# Filters list or lists by a max length
+def filter_by_length(lists, max_length):
+    if isinstance(lists[0], list):
+        new_lists = [[] for i in range(len(lists))]
+        # List of lists
+        for i in range(len(lists[0])):
+            too_long = False
+            for x in range(len(lists)):
+                if len(lists[x][i]) > max_length:
+                    too_long = True
+                    break
+            if not too_long:
+                for x in range(len(lists)):
+                    new_lists[x].append(lists[x][i])
+        return(tuple(new_lists))
     else:
-        # Get vectorized input and input lengths
-        return(input_tensor(input_batch, vocab, return_lengths=True))
+        # Single list
+        return([lists[i] for i in range(len(lists)) if len(lists[i]) <= max_length])
