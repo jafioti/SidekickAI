@@ -10,7 +10,7 @@ def pad_mask(input_batch, pad_value):
     for i, seq in enumerate(input_batch):
         m.append([])
         for token in seq:
-            if token == pad_value:
+            if token != pad_value:
                 m[i].append(0)
             else:
                 m[i].append(1)
@@ -34,7 +34,23 @@ def indexes_from_tokens(tokens, vocab):
                 current.append(nextLevel)
         return current
     else:
-        return [vocab.word2index[word] for word in tokens] + [vocab.EOS_token]
+        return [vocab.word2index[word] for word in tokens]
+
+# Recursivly gets tokens
+def tokens_from_indexes(indexes, vocab):
+    if indexes is None:
+        return
+    if len(indexes) == 0:
+        return
+    if isinstance(indexes[0], list):
+        current = []
+        for i in range(len(indexes)):
+            nextLevel = indexes_from_tokens(indexes[i], vocab)
+            if nextLevel is not None:
+                current.append(nextLevel)
+        return current
+    else:
+        return [vocab.index2word[int(index)] for index in indexes]
 
 # Returns padded input sequence tensor and lengths
 def input_batch_to_train_data(indexes_batch, vocab, return_lengths=False):
@@ -64,7 +80,10 @@ def output_batch_to_train_data(indexes_batch, vocab, return_mask=False, return_m
         return_set.append(mask)
     if return_max_target_length:
         return_set.append(max_target_len)
-    return tuple(return_set)
+    if len(return_set) > 1:
+        return tuple(return_set)
+    else:
+        return return_set[0]
 
 # Sort batch of inputs and outputs by length
 def sort_pair_batch_by_length(pair_batch):
