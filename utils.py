@@ -1,0 +1,7 @@
+
+def count_parameters(model, trainable_only=True): # Counts the parameters in the model
+    return sum(p.numel() for p in model.parameters() if (p.requires_grad or not trainable_only))
+
+def get_learning_rate(optimizer, round_digits=4): # Returns the average learning rate for an optimizer
+    lrs = [group['lr'] for group in optimizer.param_groups]
+    return round(sum(lrs) / len(lrs), round_digits)
