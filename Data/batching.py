@@ -1,5 +1,5 @@
 # Sidekick Batching v1.0
-import itertools
+import itertools, random
 from torch import LongTensor, BoolTensor, Tensor
 import Sidekick.Data.tokenization
 # This file holds functions to convert sentence pair batches to structured tensors to feed into models
@@ -20,42 +20,10 @@ def pad_mask(input_batch, pad_value):
 def pad_batch(input_batch, fillvalue):
     return list(itertools.zip_longest(*input_batch, fillvalue=fillvalue))
 
-# Recursivly gets indexes
-def indexes_from_tokens(tokens, vocab):
-    if tokens is None:
-        return
-    if len(tokens) == 0:
-        return
-    if isinstance(tokens[0], list):
-        current = []
-        for i in range(len(tokens)):
-            nextLevel = indexes_from_tokens(tokens[i], vocab)
-            if nextLevel is not None:
-                current.append(nextLevel)
-        return current
-    else:
-        return [vocab.word2index[word] for word in tokens]
-
-# Recursivly gets tokens
-def tokens_from_indexes(indexes, vocab):
-    if indexes is None:
-        return
-    if len(indexes) == 0:
-        return
-    if isinstance(indexes[0], list):
-        current = []
-        for i in range(len(indexes)):
-            nextLevel = indexes_from_tokens(indexes[i], vocab)
-            if nextLevel is not None:
-                current.append(nextLevel)
-        return current
-    else:
-        return [vocab.index2word[int(index)] for index in indexes]
-
 # Returns padded input sequence tensor and lengths
-def input_batch_to_train_data(indexes_batch, vocab, return_lengths=False):
+def input_batch_to_train_data(indexes_batch, PAD_token, return_lengths=False):
     # Pad inputs to longest length
-    padList = pad_batch(indexes_batch, fillvalue=vocab.PAD_token)
+    padList = pad_batch(indexes_batch, fillvalue=PAD_token)
     padVar = LongTensor(padList)
     if return_lengths:
         # Get lengths of each sentence in batch
@@ -65,17 +33,17 @@ def input_batch_to_train_data(indexes_batch, vocab, return_lengths=False):
         return padVar
 
 # Returns padded target sequence tensor, padding mask, and max target length
-def output_batch_to_train_data(indexes_batch, vocab, return_mask=False, return_max_target_length=False):
+def output_batch_to_train_data(indexes_batch, PAD_token, return_mask=False, return_max_target_length=False):
     if return_max_target_length:
         # Get max length
         max_target_len = max([len(indexes) for indexes in indexes_batch])
     # Pad batch
-    padList = pad_batch(indexes_batch, vocab.PAD_token)
+    padList = pad_batch(indexes_batch, PAD_token)
     padVar = LongTensor(padList)
     return_set = [padVar]
     if return_mask:
         # Get binary pad mask
-        mask = pad_mask(padList, pad_value=vocab.PAD_token)
+        mask = pad_mask(padList, pad_value=PAD_token)
         mask = BoolTensor(mask)
         return_set.append(mask)
     if return_max_target_length:
@@ -108,3 +76,9 @@ def filter_by_length(lists, max_length):
     else:
         # Single list
         return([lists[i] for i in range(len(lists)) if len(lists[i]) <= max_length])
+
+# Shuffles multiple lists of the same length in the same ways
+def shuffle_lists(*lists):
+    zipped_lists = list(zip(*lists))
+    random.shuffle(zipped_lists)
+    return zip(*zipped_lists)

@@ -103,7 +103,9 @@ def base_tokenize(sentence, full_token = False):
             else:
                 return [token.text for token in spacyNLP(sentence)]
 
-def untokenize_wordpiece(tokens, EOS_token):
+def untokenize_wordpiece(tokens, EOS_token=None):
+    if tokens is None:
+        return ""
     if len(tokens) == 0:
         return ""
     finalString = ""
