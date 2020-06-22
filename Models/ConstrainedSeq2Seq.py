@@ -44,9 +44,7 @@ class Encoder(nn.Module):
         return hidden
 
     def _flatten_hidden(self, h, batch_size):
-        if h is None:
-            return None
-        elif isinstance(h, tuple): # LSTM
+        if isinstance(h, tuple): # LSTM
             X = torch.cat([self._flatten(h[0], batch_size), self._flatten(h[1], batch_size)], 1)
         else: # GRU
             X = self._flatten(h, batch_size)
