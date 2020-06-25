@@ -84,7 +84,7 @@ class Vocab:
         if isinstance(tokens[0], list):
             current = []
             for i in range(len(tokens)):
-                nextLevel = self.indexes_from_tokens(tokens[i], vocab)
+                nextLevel = self.indexes_from_tokens(tokens[i])
                 if nextLevel is not None:
                     current.append(nextLevel)
             return current
@@ -100,7 +100,7 @@ class Vocab:
         if isinstance(indexes[0], list):
             current = []
             for i in range(len(indexes)):
-                nextLevel = self.indexes_from_tokens(indexes[i], vocab)
+                nextLevel = self.indexes_from_tokens(indexes[i])
                 if nextLevel is not None:
                     current.append(nextLevel)
             return current

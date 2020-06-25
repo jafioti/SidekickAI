@@ -3,6 +3,14 @@ This folder contains all pytorch model definition files. Usually these models do
 Models
 ______________________________________________
 
+Attention: Useful attention modules such as simple content based attention (ContentAttention) and multi head self attention (MultiHeadAttention)
+
+Seq2Seq: Useful RNN-Based Seq2Seq modules such as an Encoder, Decoder and full Seq2Seq model with optional attention and dynamic stopping
+
+
+
+
+
 ConstrainedSeq2Seq: Model that has an RNN encoder and decoder, as well as a feedforward internal latent transformation. 
 The encoder and decoder are trained together as an autoencoder, then they are frozen and the model is trained end to end to train the latent transformation.
 
