@@ -9,7 +9,7 @@ from enum import Enum
 
 import torch.nn.functional as F
 import csv, random, re, os, math
-from Sidekick.Models.Attention import ContentAttention
+from SidekickAI.Models.Attention import ContentAttention
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
