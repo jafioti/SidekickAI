@@ -1,7 +1,7 @@
 # Sidekick Batching v1.0
 import itertools, random
 from torch import LongTensor, BoolTensor, Tensor
-import Sidekick.Data.tokenization
+import SidekickAI.Data.tokenization
 # This file holds functions to convert sentence pair batches to structured tensors to feed into models
 
 # Makes binary (0, 1) matrix for batch depending on if token is padding (0 if so, 1 if not)
