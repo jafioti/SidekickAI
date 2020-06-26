@@ -4,6 +4,9 @@ import torch
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+def filter_args_dict_to_function(args_dict, function): # Helper function to filter argument dictionary to only contain arguments that a function accepts
+        return {k: v for k, v in args_dict.items() if k in [parameter.name for parameter in inspect.signature(function).parameters.values()]}
+
 # Hyperparameter tuner that uses a genetic algorithim to evolve the hyperparameters
 # Hyperparameters to be adjusted are to be passed in as a range (floats are chosen as floats, while ints are chosen as ints)
 def evolution_tune(model_class, train_function, hyperparameters, other_parameters, population_size, generations, explore_outside_bounds=True, print_training_progress=False):
@@ -21,9 +24,6 @@ def evolution_tune(model_class, train_function, hyperparameters, other_parameter
                 ranges[keys[hyperparameter]] = abs(hyperparameters[keys[hyperparameter]][1] - hyperparameters[keys[hyperparameter]][0])
             else:
                 population[-1][keys[hyperparameter]] = hyperparameters[keys[hyperparameter]]
-    
-    def filter_args_dict_to_function(args_dict, function): # Helper function to filter argument dictionary to only contain arguments that a function accepts
-        return {k: v for k, v in args_dict.items() if k in [parameter.name for parameter in inspect.signature(function).parameters.values()]}
 
     # Run evolution loop
     for generation in range(1, generations + 1):
@@ -35,7 +35,7 @@ def evolution_tune(model_class, train_function, hyperparameters, other_parameter
             if not isinstance(model_class, str): # Create model using applicable arguments in both the hyperparameters and the other parameters
                 model = model_class(**filter_args_dict_to_function(population[genome], model_class), **filter_args_dict_to_function(other_parameters, model_class)).to(device)
             else: # Load model from a path
-                model = torch.load(model_class)
+                model = torch.load(model_class).to(device)
             # Run train function
             if not print_training_progress: sys.stdout = open(os.devnull, "w")
             fitnesses.append(train_function(model=model, **filter_args_dict_to_function(population[genome], train_function), **filter_args_dict_to_function(other_parameters, train_function)))
@@ -55,3 +55,82 @@ def evolution_tune(model_class, train_function, hyperparameters, other_parameter
                     population[-1][keys[hyperparameter]] = max(0, top_genome[keys[hyperparameter]] + random.uniform(-ranges[keys[hyperparameter]] / 5, ranges[keys[hyperparameter]] / 5)) if isinstance(hyperparameters[keys[hyperparameter]][0], float) else max(1, top_genome[keys[hyperparameter]] + random.randint(-math.ceil(ranges[keys[hyperparameter]] / 5), math.ceil(ranges[keys[hyperparameter]] / 5)))
                 else:
                     population[-1][keys[hyperparameter]] = top_genome[keys[hyperparameter]]
+
+# Random search over hyperparameters
+def random_tune(model_class, train_function, hyperparameters, other_parameters, num_samples, print_training_progress=False, top_samples_to_print=None):
+    print("Running Random Search Over Hyperparameters...")
+    # Pick samples
+    samples = []
+    keys = list(hyperparameters.keys())
+    for sample in range(num_samples):
+        sample.append({})
+        for hyperparameter in range(len(keys)):
+            if isinstance(hyperparameters[keys[hyperparameter]], list):
+                if isinstance(hyperparameters[keys[hyperparameter]][0], int) and isinstance(hyperparameters[keys[hyperparameter]][0], int):
+                    sample[keys[hyperparameter]] = random.randint(hyperparameters[keys[hyperparameter]][0], hyperparameters[keys[hyperparameter]][1])
+                else:
+                    sample[keys[hyperparameter]] = random.uniform(hyperparameters[keys[hyperparameter]][0], hyperparameters[keys[hyperparameter]][1])
+            else:
+                sample[keys[hyperparameter]] = hyperparameters[keys[hyperparameter]]
+    
+    # Run samples through training
+    fitnesses = []
+    for sample in range(len(samples)):
+        model = model_class
+
+        # Create model
+        if not isinstance(model_class, str): # Create model using applicable arguments in both the hyperparameters and the other parameters
+            model = model_class(**filter_args_dict_to_function(samples[sample], model_class), **filter_args_dict_to_function(other_parameters, model_class)).to(device)
+        else: # Load model from a path
+            model = torch.load(model_class).to(device)
+
+        # Run training
+        if not print_training_progress: sys.stdout = open(os.devnull, "w")
+        fitnesses.append(train_function(model=model, **filter_args_dict_to_function(samples[sample], train_function), **filter_args_dict_to_function(other_parameters, train_function)))
+        sys.stdout = sys.__stdout__
+
+        print("Sample " + str(sample) + ": " + str(fitnesses[-1]) + ", " + str(samples[sample]))
+
+    if isinstance(top_samples_to_print, int) and top_samples_to_print > 0:
+        print("TOP " + str(top_samples_to_print) + " HYPERPARAMETER SAMPLES:")
+        # Sort by top fitnesses
+        zipped_lists = list(zip(fitnesses, samples))
+        zipped_lists.sort(reverse=True, key=lambda x: x[0])
+        fitnesses, samples = zip(*zipped_lists)
+        for i in range(top_samples_to_print):
+            print(str(i + 1) + " Fitness: " + str(fitnesses[i]) + ", " + str(samples[i]))
+
+# Grid search over hyperparameters
+def grid_tune(model_class, train_function, hyperparameters, other_parameters, print_training_progress=False, top_samples_to_print=None):
+    print("Running Grid Search Over Hyperparameters...")
+    # Pick samples
+    samples = []
+    keys = list(hyperparameters.keys())
+    
+    
+    # Run samples through training
+    fitnesses = []
+    for sample in range(len(samples)):
+        model = model_class
+
+        # Create model
+        if not isinstance(model_class, str): # Create model using applicable arguments in both the hyperparameters and the other parameters
+            model = model_class(**filter_args_dict_to_function(samples[sample], model_class), **filter_args_dict_to_function(other_parameters, model_class)).to(device)
+        else: # Load model from a path
+            model = torch.load(model_class).to(device)
+
+        # Run training
+        if not print_training_progress: sys.stdout = open(os.devnull, "w")
+        fitnesses.append(train_function(model=model, **filter_args_dict_to_function(samples[sample], train_function), **filter_args_dict_to_function(other_parameters, train_function)))
+        sys.stdout = sys.__stdout__
+
+        print("Sample " + str(sample) + ": " + str(fitnesses[-1]) + ", " + str(samples[sample]))
+
+    if isinstance(top_samples_to_print, int) and top_samples_to_print > 0:
+        print("TOP " + str(top_samples_to_print) + " HYPERPARAMETER SAMPLES:")
+        # Sort by top fitnesses
+        zipped_lists = list(zip(fitnesses, samples))
+        zipped_lists.sort(reverse=True, key=lambda x: x[0])
+        fitnesses, samples = zip(*zipped_lists)
+        for i in range(top_samples_to_print):
+            print(str(i + 1) + " Fitness: " + str(fitnesses[i]) + ", " + str(samples[i]))

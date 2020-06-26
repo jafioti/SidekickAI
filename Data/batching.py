@@ -86,6 +86,5 @@ def shuffle_lists(*lists):
 # Sorts multiple lists by the lengths of the first list
 def sort_lists_by_length(sorting_list, *other_lists, longest_first=False):
     zipped_lists = list(zip(sorting_list, *other_lists))
-    def sorting_function(e): return len(e[0])
-    zipped_lists.sort(reverse=longest_first, key=sorting_function)
+    zipped_lists.sort(reverse=longest_first, key=lambda x: len(x[0]))
     return zip(*zipped_lists)
