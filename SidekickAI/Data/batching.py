@@ -20,43 +20,32 @@ def pad_mask(input_batch, pad_value):
 def pad_batch(input_batch, fillvalue):
     return list(itertools.zip_longest(*input_batch, fillvalue=fillvalue))
 
-# Returns padded input sequence tensor and lengths
-def input_batch_to_train_data(indexes_batch, PAD_token, return_lengths=False):
+# Returns padded sequence tensor, lengths, and pad mask
+def batch_to_train_data(indexes_batch, PAD_token, return_lengths=False, return_pad_mask=False):
+    '''
+    Returns training data for a given batch.
+        Inputs:
+            indexes_batch (list): A list of lists of token indexes
+            PAD_token (int): An index of the pad token
+            *return_lengths (bool): Whether or not to return the lengths of the unpadded sequences [default: False]
+            *return_pad_mask (bool): Whether or not to return a pad mask over all the padding [default: False]
+
+        Returns:
+            output_tensor (tensor: (seq len, batch size)): The padded tensor to input to the model
+            *lengths (tensor: (batch size)): A tensor specifying the actual lengths of each sequence without padding
+            *mask (tensor: (batch size, seq len)): A binary tensor specifying if the current position is a pad token or not
+    '''
     # Pad inputs to longest length
     padList = pad_batch(indexes_batch, fillvalue=PAD_token)
     padVar = LongTensor(padList)
+    return_list = [padVar]
     if return_lengths:
         # Get lengths of each sentence in batch
-        lengths = Tensor([len(indexes) for indexes in indexes_batch])
-        return padVar, lengths
-    else:
-        return padVar
-
-# Returns padded target sequence tensor, padding mask, and max target length
-def output_batch_to_train_data(indexes_batch, PAD_token, return_mask=False, return_max_target_length=False):
-    if return_max_target_length:
-        # Get max length
-        max_target_len = max([len(indexes) for indexes in indexes_batch])
-    # Pad batch
-    padList = pad_batch(indexes_batch, PAD_token)
-    padVar = LongTensor(padList)
-    return_set = [padVar]
-    if return_mask:
-        # Get binary pad mask
-        mask = pad_mask(padList, pad_value=PAD_token)
-        mask = BoolTensor(mask)
-        return_set.append(mask)
-    if return_max_target_length:
-        return_set.append(max_target_len)
-    if len(return_set) > 1:
-        return tuple(return_set)
-    else:
-        return return_set[0]
-
-# Sort batch of inputs and outputs by length
-def sort_pair_batch_by_length(pair_batch):
-    pair_batch.sort(key=lambda x: len(x[0]), reverse=True)
-    return(pair_batch)
+        return_list.append(Tensor([len(indexes) for indexes in indexes_batch]))
+    if return_pad_mask:
+        # Get mask over all the pad tokens
+        return_list.append(BoolTensor(pad_mask(padList, pad_value=PAD_token)))
+    return tuple(return_list) if len(return_list) > 1 else return_list[0]
 
 # Filters list or lists by a max length
 def filter_by_length(lists, max_length):
@@ -79,12 +68,31 @@ def filter_by_length(lists, max_length):
 
 # Shuffles multiple lists of the same length in the same ways
 def shuffle_lists(*lists):
+    '''
+    Shuffle multiple lists in the same way
+        Inputs:
+            lists (lists): The lists to be shuffled
+        Outputs:
+            lists (lists): The shuffled lists
+        Usage:
+            list1, list2, list3 = shuffle_lists(list1, list2, list3)
+    '''
     zipped_lists = list(zip(*lists))
     random.shuffle(zipped_lists)
     return zip(*zipped_lists)
 
-# Sorts multiple lists by the lengths of the first list
 def sort_lists_by_length(sorting_list, *other_lists, longest_first=False):
+    '''
+    Sort multiple lists by the lengths of the first list of lists
+        Inputs:
+            sorting_list (list of lists): The list of lists to be used when sorting
+            other_lists (lists): The other lists to be sorted in the same way
+            *longest_first (bool): Sort with the longest coming first [default: False]
+        Outputs:
+            lists (lists): The sorted lists
+        Usage:
+            list1, list2, list3 = sort_lists_by_length(list1, list2, list3)
+    '''
     zipped_lists = list(zip(sorting_list, *other_lists))
     def sorting_function(e): return len(e[0])
     zipped_lists.sort(reverse=longest_first, key=sorting_function)
