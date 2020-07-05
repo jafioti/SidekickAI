@@ -6,7 +6,7 @@ loaded_spacy_model = None # We have to represent the spacy model as a string...
 
 # MAIN TOKENIZING FUNCTIONS
 def tokenize_spacy(sentence, full_token_data=False, spacy_model=None):
-     '''General Spacy tokenization function.\n
+    '''General Spacy tokenization function.\n
     Inputs:
         sentence: any possibly jagged collection of strings / tuples of strings (for BERT seperation)
         full_token_data: [default: false] return the full "tokenizers" module token object or simply the token string
