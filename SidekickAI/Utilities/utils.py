@@ -13,3 +13,10 @@ def count_parameters(model, trainable_only=True, format_as_string=True): # Count
 def get_learning_rate(optimizer, round_digits=4): # Returns the average learning rate for an optimizer
     lrs = [group['lr'] for group in optimizer.param_groups]
     return round(sum(lrs) / len(lrs), round_digits)
+
+def lr_decay(optimizer, lr_decay):
+    ''' Decay an optimizer's learning rates by the lr_decay factor. \n
+        new_lr = old_lr * lr_decay'''
+    for param_group in optimizer.param_groups:
+        param_group['lr'] *= lr_decay
+    return optimizer

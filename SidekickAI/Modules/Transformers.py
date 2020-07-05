@@ -29,7 +29,7 @@ class EncoderLayer(nn.Module):
         #src_mask = [batch size, src len]
                 
         #self attention
-        _src, _ = self.self_attention(src, src, src)
+        _src = self.self_attention(src, src, src)
         
         #dropout, residual connection and layer norm
         src = self.self_attn_layer_norm(src + self.dropout(_src))
@@ -101,7 +101,7 @@ class DecoderLayer(nn.Module):
         #src_mask = [batch size, src len]
         
         #self attention
-        _trg, _ = self.self_attention(trg, trg, trg, trg_mask)
+        _trg = self.self_attention(trg, trg, trg, trg_mask)
         
         #dropout, residual connection and layer norm
         trg = self.self_attn_layer_norm(trg + self.dropout(_trg))
@@ -109,7 +109,7 @@ class DecoderLayer(nn.Module):
         #trg = [batch size, trg len, hid dim]
             
         #encoder attention
-        _trg, attention = self.encoder_attention(trg, enc_src, enc_src, src_mask)
+        _trg = self.encoder_attention(trg, enc_src, enc_src, src_mask)
         
         #dropout, residual connection and layer norm
         trg = self.enc_attn_layer_norm(trg + self.dropout(_trg))
@@ -123,9 +123,8 @@ class DecoderLayer(nn.Module):
         trg = self.ff_layer_norm(trg + self.dropout(_trg))
         
         #trg = [batch size, trg len, hid dim]
-        #attention = [batch size, n heads, trg len, src len]
         
-        return trg, attention
+        return trg
 
 class TransformerDecoder(nn.Module):
     def __init__(self, output_dim, hidden_size, n_layers, n_heads, feedforward_dim, dropout, device, max_length = 100):
@@ -169,17 +168,16 @@ class TransformerDecoder(nn.Module):
         #trg = [batch size, trg len, hid dim]
         
         for layer in self.layers:
-            trg, attention = layer(trg, enc_src, trg_mask, src_mask)
+            trg = layer(trg, enc_src, trg_mask, src_mask)
         
         #trg = [batch size, trg len, hid dim]
-        #attention = [batch size, n heads, trg len, src len]
         
         output = self.fc_out(trg)
         
         #output = [batch size, trg len, output dim]
         
         output.transpose_(0, 1)
-        return output, attention
+        return output
 
 class TransformerSeq2Seq(nn.Module):
     def __init__(self, encoder, decoder, src_pad_idx, trg_pad_idx, device):
@@ -240,9 +238,8 @@ class TransformerSeq2Seq(nn.Module):
         
         #enc_src = [batch size, src len, hid dim]
                 
-        output, attention = self.decoder(trg, enc_src, trg_mask, src_mask)
+        output = self.decoder(trg, enc_src, trg_mask, src_mask)
         
         #output = [batch size, trg len, output dim]
-        #attention = [batch size, n heads, trg len, src len]
         
-        return output, attention
+        return output

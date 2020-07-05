@@ -10,23 +10,52 @@ from enum import Enum
 import torch.nn.functional as F
 import csv, random, re, os, math
 
+from SidekickAI.Utilities.functional import weighted_avg
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Content based attention (Dot product attention)
 class ContentAttention(nn.Module):
-    def __init__(self, hidden_size):
-        self.hidden_size = hidden_size
+    '''Content Based Attention (Dot product attention) over keys using a query'''
+    def __init__(self, query_hidden_size, key_hidden_size):
+        super().__init__()
+        self.query_converter = nn.Linear(query_hidden_size, key_hidden_size) if query_hidden_size != key_hidden_size else None
     
-    def forward(self, query, values, return_weighted_sum=True):
-        # query: (batch size, hidden size)
-        # values: (sequence length, batch size, hidden size)
-        distribution = torch.matmul(values.transpose(0, 1), query.unsqueeze(-1)).squeeze(-1)
+    def forward(self, query, keys, key_mask=None, return_weighted_sum=False):
+        '''Inputs:
+            query: (batch size, query hidden size)
+            keys: (batch size, sequence length, key hidden size)
+            key_mask: (batch size, sequence length) [optional]
+        Returns:
+            distribution = (sequence length, batch size) or average = (batch size, hidden size)'''
+        if self.query_converter is not None: query = self.query_converter(query)
+        distribution = keys.bmm(query.unsqueeze(2)).squeeze(2)
+        if key_mask is not None: distribution.data.masked_fill_(key_mask.data, -float('inf'))
         if return_weighted_sum:
-            # return: (batch size, hidden size)
-            return torch.matmul(distribution.transpose(0, 1).unsqueeze(1), values.transpose(0, 1)).squeeze(1)
+            return weighted_avg(keys, F.softmax(distribution, dim=1))
         else:
-            # return: (sequence length, batch size)
-            return distribution
+            # In training we output log-softmax for NLL, otherwise normal softmax
+            return F.log_softmax(distribution, dim=1) if self.training else F.softmax(distribution, dim=1)
+
+class LearnedSeqAttn(nn.Module):
+    """Learned attention over a sequence (uses a learned vector to get the attention scores):
+    """
+    def __init__(self, input_size):
+        super().__init__()
+        self.linear = nn.Linear(input_size, 1)
+
+    def forward(self, x, x_mask=None, return_avg=False):
+        """Input shapes:
+            x = (batch size, seq len, hidden size)
+            x_mask = (batch size, seq len)
+        Returns:
+            dist = (batch size, seq len) or avg = (batch size, hidden size)
+        """
+        x_flat = x.contiguous().view(-1, x.size(-1))
+        scores = self.linear(x_flat).view(x.size(0), x.size(1))
+        if x_mask is not None: scores.data.masked_fill_(x_mask.data, -float('inf'))
+        alpha = F.softmax(scores, dim=1)
+        return weighted_avg(x, alpha) if return_avg else alpha
 
 # Multi Head Self Attention from https://github.com/bentrevett/pytorch-seq2seq/blob/master/6%20-%20Attention%20is%20All%20You%20Need.ipynb
 class MultiHeadAttention(nn.Module):
@@ -50,12 +79,14 @@ class MultiHeadAttention(nn.Module):
         self.scale = torch.sqrt(torch.FloatTensor([self.head_dim])).to(device)
         
     def forward(self, query, key, value, mask = None):
+        '''Inputs:
+            query: (batch size, query len, hidden size)
+            key: (batch size, key len, hidden size)
+            value: (batch size, value len, hidden size)
+        Returns:
+            x: (batch size, query len, hidden size)'''
         
         batch_size = query.shape[0]
-        #query = [batch size, query len, hid dim]
-        #key = [batch size, key len, hid dim]
-        #value = [batch size, value len, hid dim]
-                
         Q = self.fc_q(query)
         K = self.fc_k(key)
         V = self.fc_v(value)
@@ -63,6 +94,7 @@ class MultiHeadAttention(nn.Module):
         #K = [batch size, key len, hid dim]
         #V = [batch size, value len, hid dim]
                 
+        # Split into heads
         Q = Q.view(batch_size, -1, self.n_heads, self.head_dim).permute(0, 2, 1, 3)
         K = K.view(batch_size, -1, self.n_heads, self.head_dim).permute(0, 2, 1, 3)
         V = V.view(batch_size, -1, self.n_heads, self.head_dim).permute(0, 2, 1, 3)
