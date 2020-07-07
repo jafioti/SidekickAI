@@ -6,6 +6,7 @@ loaded_spacy_model = None # We have to represent the spacy model as a string...
 
 # MAIN TOKENIZING FUNCTIONS
 def tokenize_spacy(sentence, full_token_data=False, spacy_model=None):
+    sentence = copy.deepcopy(sentence)
     '''General Spacy tokenization function.\n
     Inputs:
         sentence: any possibly jagged collection of strings / tuples of strings (for BERT seperation)
@@ -24,7 +25,7 @@ def tokenize_spacy(sentence, full_token_data=False, spacy_model=None):
         return tokenizer(sentence) if full_token_data else [token.text for token in tokenizer(sentence)]
     
     # Traverse list, return linearized list of strings/pairs and insert index numbers into the main list
-    main_list, linear_list = extract_bottom_items(main_list=sentence, base_types=[str, tuple])
+    main_list, linear_list = extract_bottom_items(main_list=sentence, base_types=[str])
 
     # Tokenize
     linear_list = [[token if full_token_data else token.text for token in doc] for doc in tokenizer.pipe(linear_list)]
@@ -36,6 +37,7 @@ def tokenize_spacy(sentence, full_token_data=False, spacy_model=None):
 
 
 def tokenize_wordpiece(sentence, special_tokens=False, full_token_data=False, lowercase=True):
+    sentence = copy.deepcopy(sentence)
     '''General WordPiece tokenization function.\n
     Inputs:
         sentence: any possibly jagged collection of strings / tuples of strings (for BERT seperation)
@@ -52,11 +54,11 @@ def tokenize_wordpiece(sentence, special_tokens=False, full_token_data=False, lo
     if not isinstance(tokenizer, BertWordPieceTokenizer):
         tokenizer = BertWordPieceTokenizer(os.path.join(os.path.dirname(os.path.abspath(__file__)), "bert-base-uncased-vocab.txt"), lowercase=lowercase)
     
-    if isinstance(sentence, str): # Tokenize string right away
+    if isinstance(sentence, str) or isinstance(sentence, tuple): # Tokenize string right away
         if full_token_data:
-            return tokenizer.encode(sentence) if special_tokens else tokenizer.encode(sentence)[1:-1]
+            return tokenizer.encode(*sentence if isinstance(sentence, tuple) else sentence) if special_tokens else tokenizer.encode(*sentence if isinstance(sentence, tuple) else sentence)[1:-1]
         else:
-            return tokenizer.encode(sentence).tokens if special_tokens else tokenizer.encode(sentence).tokens[1:-1]
+            return tokenizer.encode(*sentence if isinstance(sentence, tuple) else sentence).tokens if special_tokens else tokenizer.encode(*sentence if isinstance(sentence, tuple) else sentence).tokens[1:-1]
     
     # Traverse list, return linearized list of strings/pairs and insert index numbers into the main list
     main_list, linear_list = extract_bottom_items(main_list=sentence, base_types=[str, tuple])
@@ -68,6 +70,33 @@ def tokenize_wordpiece(sentence, special_tokens=False, full_token_data=False, lo
         linear_list = [doc if special_tokens else doc[1:-1] for doc in tokenizer.encode_batch(linear_list)]
     else:
         linear_list = [doc.tokens if special_tokens else doc.tokens[1:-1] for doc in tokenizer.encode_batch(linear_list)]
+
+    # Add the linear list items back to the main list
+    main_list = insert_bottom_items(main_list=main_list, linear_list=linear_list)
+
+    return main_list
+
+def tokenize_moses(sentence, lowercase=True):
+    sentence = copy.deepcopy(sentence)
+    '''General Moses tokenization function.\n
+    Inputs:
+        sentence: any possibly jagged collection of strings
+        lowercase: [default: true] lowercase everything
+    Outputs:
+        sentence: the same possibly jagged collection of inputs, now tokenized'''
+    global tokenizer
+    from sacremoses import MosesTokenizer
+    if not isinstance(tokenizer, MosesTokenizer): tokenizer = MosesTokenizer(lang="en")
+
+    if isinstance(sentence, str): # Tokenize string right away
+        return tokenizer.tokenize(sentence)
+    
+    # Traverse list, return linearized list of strings/pairs and insert index numbers into the main list
+    main_list, linear_list = extract_bottom_items(main_list=sentence, base_types=[str])
+
+    # Tokenize the linear list
+    for i in range(len(linear_list)):
+        linear_list[i] = tokenizer.tokenize(linear_list[i].lower()) if lowercase else tokenizer.tokenize(linear_list[i])
 
     # Add the linear list items back to the main list
     main_list = insert_bottom_items(main_list=main_list, linear_list=linear_list)
@@ -102,50 +131,56 @@ def insert_bottom_items(main_list, linear_list):
     
     return main_list
 
-# Tokenizes setence or list of sentences
-def base_tokenize(sentence, full_token_data=False):
-    # Do tokenization based on avaliable tokenizer
-    if tokenizer is not None:
-        if isinstance(sentence, list):
-            # Batch
-            if full_token:
-                return(tokenizer.encode_batch(sentence))
-            else:
-                return([singleSentence.tokens[1:-1] for singleSentence in tokenizer.encode_batch(sentence)])
-        else:
-            # Single
-            if full_token:
-                return(tokenizer.encode(sentence))
-            else:
-                return(tokenizer.encode(sentence).tokens[1:-1])
-            
-    elif spacyNLP is not None:
-        if isinstance(sentence, list):
-            # Batch
-            if full_token:
-                return [spacyNLP(sentence[i]) for i in range(len(sentence))]
-            else:
-                return [[token.text for token in spacyNLP(sentence[i])] for i in range(len(sentence))]
-        else:
-            # Single
-            if full_token:
-                return spacyNLP(sentence)
-            else:
-                return [token.text for token in spacyNLP(sentence)]
-
-
 # UNTOKENIZATION FUNCTIONS
-def untokenize_wordpiece(tokens, EOS_token=None):
+def untokenize_wordpiece(tokens):
+    tokens = copy.deepcopy(tokens)
+    '''Untokenization function for WordPiece tokens, also splits at [SEP] tokens, and removes [CLS] and EOS tokens\n
+    Inputs:
+        tokens: any possible non jagged list of tokens
+    Returns:
+        sentences: the same list of tokens, with the bottom level list replaced with a string'''
     if tokens is None:
         return ""
     if len(tokens) == 0:
         return ""
-    finalString = ""
-    punctuation = [".", "?", "!", ",", "'", '"']
     for i in range(len(tokens)):
-        if tokens[i] != EOS_token and tokens[i] != "[CLS]":
-            if "##" not in tokens[i] and tokens[i] not in punctuation:
-                finalString += " " + tokens[i]
-            else:
-                finalString += tokens[i].replace("##", "")
-    return(finalString.replace("[SEP]", "").replace("EOS", ""))
+        if isinstance(tokens[i], list):
+            tokens[i] = untokenize_wordpiece(tokens[i])
+        elif i > 0:
+            raise Exception("The list of tokens cannot be jagged!")
+        else:
+            finalString = [""]
+            punctuation = [".", "?", "!", ",", "'", '"']
+            for x in range(len(tokens)):
+                if tokens[x] == "[SEP]":
+                    tokens.append("")
+                if tokens[x] != "EOS" and tokens[x] != "[CLS]":
+                    if "##" not in tokens[x] and tokens[x] not in punctuation:
+                        finalString[-1] += " " + tokens[x]
+                    else:
+                        finalString[-1] += tokens[x].replace("##", "")
+            return finalString[0] if len(finalString) == 1 else finalString
+    return tokens
+
+def untokenize_moses(tokens):
+    tokens = copy.deepcopy(tokens)
+    '''Untokenization function for Moses tokens\n
+    Inputs:
+        tokens: any possible non jagged list of tokens
+    Returns:
+        sentences: the same list of tokens, with the bottom level list replaced with a string'''
+    global tokenizer
+    from sacremoses import MosesDetokenizer
+    if not isinstance(tokenizer, MosesDetokenizer): tokenizer = MosesDetokenizer(lang="en") # We use the global tokenizer object since it will work well for the recursion
+    if tokens is None:
+        return ""
+    if len(tokens) == 0:
+        return ""
+    for i in range(len(tokens)):
+        if isinstance(tokens[i], list):
+            tokens[i] = untokenize_moses(tokens[i])
+        elif i > 0:
+            raise Exception("The list of tokens cannot be jagged!")
+        else:
+            return tokenizer.detokenize(tokens)
+    return tokens

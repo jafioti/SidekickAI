@@ -59,6 +59,11 @@ def exact_match(pred, answers):
 
 # Helper function to normalize text (lowercase, remove punctuation, remove articles, and fix white space)
 def normalize_string(s):
+    '''Normalize the string (lowercase, remove punctuation, remove articles, and fix white space)\n
+    Inputs:
+        s (string): A normal string to be normalized
+    Outputs:
+        s (string): The normalized string'''
     def remove_articles(text):
         return re.sub(r'\b(a|an|the)\b', ' ', text)
 
