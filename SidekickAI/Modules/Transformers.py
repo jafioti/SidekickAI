@@ -13,233 +13,113 @@ from SidekickAI.Models.Attention import MultiHeadAttention
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# Transformer Implementation from https://github.com/bentrevett/pytorch-seq2seq/blob/master/6%20-%20Attention%20is%20All%20You%20Need.ipynb
-class EncoderLayer(nn.Module):
-    def __init__(self, hidden_size, n_heads, feedforward_dim, dropout, device):
+class EmbeddingTransformerSeq2Seq(nn.Module):
+    def __init__(self, input_size, input_vocab, target_vocab, num_heads, num_encoder_layers, num_decoder_layers, forward_expansion, dropout=0.1, max_len=50, device=torch.device("cuda" if torch.cuda.is_available() else "cpu")):
         super().__init__()
-        
-        self.self_attn_layer_norm = nn.LayerNorm(hidden_size)
-        self.ff_layer_norm = nn.LayerNorm(hidden_size)
-        self.self_attention = MultiHeadAttention(hidden_size, n_heads, dropout, device)
-        self.dropout = nn.Dropout(dropout)
-        self.positionwise_feedforward = nn.Sequential(nn.Linear(hidden_size, feedforward_dim), nn.ReLU(), self.dropout, nn.Linear(feedforward_dim, hidden_size))
-        
-    def forward(self, src, src_mask):
-        #src = [batch size, src len, hid dim]
-        #src_mask = [batch size, src len]
-                
-        #self attention
-        _src = self.self_attention(src, src, src)
-        
-        #dropout, residual connection and layer norm
-        src = self.self_attn_layer_norm(src + self.dropout(_src))
-        #src = [batch size, src len, hid dim]
-        
-        #positionwise feedforward
-        _src = self.positionwise_feedforward(src)
-        
-        #dropout, residual and layer norm
-        src = self.ff_layer_norm(src + self.dropout(_src))
-        #src = [batch size, src len, hid dim]
-        
-        return src
-
-class TransformerEncoder(nn.Module):
-    def __init__(self, hidden_dim, n_layers, n_heads, feedforward_dim, dropout, device, max_length = 100):
-        super().__init__()
-
         self.device = device
-        self.pos_embedding = nn.Embedding(max_length, hidden_dim)
-        self.layers = nn.ModuleList([EncoderLayer(hidden_dim, n_heads, feedforward_dim, dropout, device) for _ in range(n_layers)])
+        self.input_vocab = input_vocab
+        self.target_vocab = target_vocab
+        self.max_len = max_len
+        self.src_embedding = nn.Embedding(input_vocab.num_words, input_size)
+        self.src_positional_embedding = nn.Embedding(max_len, input_size)
+        self.trg_embedding = nn.Embedding(target_vocab.num_words, input_size)
+        self.trg_positional_embedding = nn.Embedding(max_len, input_size)
+        self.transformer = nn.Transformer(d_model=input_size, dim_feedforward=input_size * forward_expansion, nhead=num_heads, num_encoder_layers=num_encoder_layers, num_decoder_layers=num_decoder_layers, dropout=dropout)
         self.dropout = nn.Dropout(dropout)
-        self.scale = torch.sqrt(torch.FloatTensor([hidden_dim])).to(device)
-        
-    def forward(self, src, src_lengths):
-        #src = [src len, batch size, hidden dim]
-        src.transpose_(0, 1)
+        self.fc_out = nn.Linear(input_size, target_vocab.num_words)
 
-        #src = [batch size, src len, hidden dim]
-        #src_lengths = [batch size]
-        batch_size = src.shape[0]
-        src_len = src.shape[1]
-        
-        # Get src_mask
-        src_mask = torch.arange(src_len).to(device)[None, :] < src_lengths[:, None]
-        # src_mask = [batch size, src len]
+    def create_pad_mask(self, seq, pad_idx):
+        # seq shape: (seq len, batch size)
+        mask = seq.transpose(0, 1) == pad_idx
+        # mask shape: (batch size, seq len) <- PyTorch transformer wants this shape for mask
+        return mask
 
-        pos = torch.arange(0, src_len).unsqueeze(0).repeat(batch_size, 1).to(self.device)
-        #pos = [batch size, src len]
-        
-        src = self.dropout((src * self.scale) + self.pos_embedding(pos))
-        #src = [batch size, src len, hid dim]
-        
-        for layer in self.layers:
-            src = layer(src, src_mask)
-        #src = [batch size, src len, hid dim]
-        src.transpose_(0, 1)
-        #src = [src len, batch size, hid dim]
-            
-        return src
+    def forward(self, src, trg=None):
+        src_len, batch_size, dim = src.shape
+        trg_len = trg.shape[0] if trg is not None else 1
+        if trg is None:
+            autoregressive = True
+            trg = torch.full((1, batch_size), fill_value=self.target_vocab.SOS_token, dtype=torch.float).to(self.device)
+            final_out = torch.zeros((self.max_len, batch_size, self.target_vocab.num_words)).to(self.device) # To hold the distributions
+        else:
+            autoregressive = False
+            assert trg[0][0].item() == self.target_vocab.SOS_token # Ensure there is an SOS token at the start of the trg
 
-class DecoderLayer(nn.Module):
-    def __init__(self, hidden_size, n_heads, feedforward_dim, dropout, device):
+        for i in range(self.max_len if autoregressive else 1):
+            # Get pad masks
+            src_pad_mask = self.create_pad_mask(src, self.input_vocab.PAD_token)
+            trg_pad_mask = self.create_pad_mask(trg, self.target_vocab.PAD_token)
+
+            # Make position tensors
+            src_positions = torch.arange(0, src_len).unsqueeze(1).expand(src_len, batch_size).to(self.device)
+            trg_positions = torch.arange(0, trg_len).unsqueeze(1).expand(trg_len, batch_size).to(self.device)
+
+            # Add position embeddings to input embeddings
+            src = self.dropout(src + self.src_positional_embedding(src_positions))
+            trg = self.dropout(trg + self.trg_positional_embedding(trg_positions))
+
+            # Get target subsequent mask
+            trg_subsequent_mask = self.transformer.generate_square_subsequent_mask(trg_len).to(self.device)
+
+            # Training, just a single forward pass is needed
+            out = self.transformer(src=src, tgt=trg, src_key_padding_mask=src_pad_mask, tgt_key_padding_mask=trg_pad_mask, tgt_mask=trg_subsequent_mask)
+            out = self.fc_out(out)
+            # out shape: (trg_len, batch size, target_num_words)
+
+            if autoregressive:
+                final_out[i] = out[-1]
+                trg = torch.cat((trg, torch.argmax(out[-1], dim=-1)), dim=0)
+                if all([any(trg[:, x] == self.target_vocab.EOS_token) for x in range(batch_size)]): # EOS was outputted in all batches
+                    return final_out[:i + 1]
+
+        # out shape: (trg_len, batch size, target_num_words)
+        return out
+
+class VectorTransformerSeq2Seq(nn.Module):
+    def __init__(self, input_size, input_vocab_size, target_vocab_size, num_heads, num_encoder_layers, num_decoder_layers, forward_expansion, pad_idx, dropout=0.1, max_len=50, device=torch.device("cuda" if torch.cuda.is_available() else "cpu")):
         super().__init__()
-        
-        self.self_attn_layer_norm = nn.LayerNorm(hidden_size)
-        self.enc_attn_layer_norm = nn.LayerNorm(hidden_size)
-        self.ff_layer_norm = nn.LayerNorm(hidden_size)
-        self.self_attention = MultiHeadAttentionLayer(hidden_size, n_heads, dropout, device)
-        self.encoder_attention = MultiHeadAttentionLayer(hidden_size, n_heads, dropout, device)
-        self.positionwise_feedforward = nn.Sequential(nn.Linear(hidden_size, feedforward_dim), nn.ReLU(), self.dropout, nn.Linear(feedforward_dim, hidden_size))
-        self.dropout = nn.Dropout(dropout)
-        
-    def forward(self, trg, enc_src, trg_mask, src_mask):
-        
-        #trg = [batch size, trg len, hid dim]
-        #enc_src = [batch size, src len, hid dim]
-        #trg_mask = [batch size, trg len]
-        #src_mask = [batch size, src len]
-        
-        #self attention
-        _trg = self.self_attention(trg, trg, trg, trg_mask)
-        
-        #dropout, residual connection and layer norm
-        trg = self.self_attn_layer_norm(trg + self.dropout(_trg))
-            
-        #trg = [batch size, trg len, hid dim]
-            
-        #encoder attention
-        _trg = self.encoder_attention(trg, enc_src, enc_src, src_mask)
-        
-        #dropout, residual connection and layer norm
-        trg = self.enc_attn_layer_norm(trg + self.dropout(_trg))
-                    
-        #trg = [batch size, trg len, hid dim]
-        
-        #positionwise feedforward
-        _trg = self.positionwise_feedforward(trg)
-        
-        #dropout, residual and layer norm
-        trg = self.ff_layer_norm(trg + self.dropout(_trg))
-        
-        #trg = [batch size, trg len, hid dim]
-        
-        return trg
-
-class TransformerDecoder(nn.Module):
-    def __init__(self, output_dim, hidden_size, n_layers, n_heads, feedforward_dim, dropout, device, max_length = 100):
-        super().__init__()
-        
         self.device = device
-        
-        self.tok_embedding = nn.Embedding(output_dim, hidden_size)
-        self.pos_embedding = nn.Embedding(max_length, hidden_size)
-        
-        self.layers = nn.ModuleList([DecoderLayer(hidden_size, n_heads, feedforward_dim, dropout, device) for _ in range(n_layers)])
-        
-        self.fc_out = nn.Linear(hidden_size, output_dim)
+        self.pad_idx = pad_idx
+        self.max_len = max_len
+        self.src_embedding = nn.Embedding(input_vocab_size, input_size)
+        self.src_positional_embedding = nn.Embedding(max_len, input_size)
+        self.trg_embedding = nn.Embedding(target_vocab_size, input_size)
+        self.trg_positional_embedding = nn.Embedding(max_len, input_size)
+        self.transformer = nn.Transformer(d_model=input_size, dim_feedforward=input_size * forward_expansion, nhead=num_heads, num_encoder_layers=num_encoder_layers, num_decoder_layers=num_decoder_layers, dropout=dropout)
         self.dropout = nn.Dropout(dropout)
-        self.scale = torch.sqrt(torch.FloatTensor([hidden_size])).to(device)
-        
-    def forward(self, trg, enc_src, trg_mask, src_mask):
-        #trg = [trg len, batch size]
-        #enc_src = [src len, batch size, hid dim]
-        #trg_mask = [trg len, batch size]
-        #src_mask = [src len, batch size]
-        trg.transpose_(0, 1)
-        enc_src.transpose_(0, 1)
-        trg_mask.transpose_(0, 1)
-        src_mask.transpose_(0, 1)
 
-        #trg = [batch size, trg len]
-        #enc_src = [batch size, src len, hid dim]
-        #trg_mask = [batch size, trg len]
-        #src_mask = [batch size, src len]
-                
-        batch_size = trg.shape[0]
-        trg_len = trg.shape[1]
-        
-        pos = torch.arange(0, trg_len).unsqueeze(0).repeat(batch_size, 1).to(self.device)
-                            
-        #pos = [batch size, trg len]
-            
-        trg = self.dropout((self.tok_embedding(trg) * self.scale) + self.pos_embedding(pos))
-                
-        #trg = [batch size, trg len, hid dim]
-        
-        for layer in self.layers:
-            trg = layer(trg, enc_src, trg_mask, src_mask)
-        
-        #trg = [batch size, trg len, hid dim]
-        
-        output = self.fc_out(trg)
-        
-        #output = [batch size, trg len, output dim]
-        
-        output.transpose_(0, 1)
-        return output
-
-class TransformerSeq2Seq(nn.Module):
-    def __init__(self, encoder, decoder, src_pad_idx, trg_pad_idx, device):
-        super().__init__()
-        
-        self.encoder = encoder
-        self.decoder = decoder
-        self.src_pad_idx = src_pad_idx
-        self.trg_pad_idx = trg_pad_idx
-        self.device = device
-        
-    def make_src_mask(self, src):
-        
-        #src = [batch size, src len]
-        
-        src_mask = (src != self.src_pad_idx).unsqueeze(1).unsqueeze(2)
-
-        #src_mask = [batch size, 1, 1, src len]
-
-        return src_mask
-    
-    def make_trg_mask(self, trg):
-        
-        #trg = [batch size, trg len]
-        
-        trg_pad_mask = (trg != self.trg_pad_idx).unsqueeze(1).unsqueeze(2)
-        
-        #trg_pad_mask = [batch size, 1, 1, trg len]
-        
-        trg_len = trg.shape[1]
-        
-        trg_sub_mask = torch.tril(torch.ones((trg_len, trg_len), device = self.device)).bool()
-        
-        #trg_sub_mask = [trg len, trg len]
-            
-        trg_mask = trg_pad_mask & trg_sub_mask
-        
-        #trg_mask = [batch size, 1, trg len, trg len]
-        
-        return trg_mask
+    def create_pad_mask(self, seq):
+        # seq shape: (seq len, batch size)
+        mask = seq.transpose(0, 1) == self.pad_idx
+        # mask shape: (batch size, seq len) <- PyTorch transformer wants this shape for mask
+        return mask
 
     def forward(self, src, trg):
-        #src = [src len, batch size]
-        #trg = [trg len, batch size]
-        src.transpose_(0, 1)
-        trg.transpose_(0, 1)
+        src_len, batch_size, dim = src.shape # src_pad_mask: (src_len, batch_size)
+        trg_len, batch_size, dim = trg.shape # trg_pad_mask: (trg_len, batch_size)
 
-        #src = [batch size, src len]
-        #trg = [batch size, trg len]
-                
-        src_mask = self.make_src_mask(src)
-        trg_mask = self.make_trg_mask(trg)
-        
-        #src_mask = [batch size, 1, 1, src len]
-        #trg_mask = [batch size, 1, trg len, trg len]
-        
-        enc_src = self.encoder(src, src_mask)
-        
-        #enc_src = [batch size, src len, hid dim]
-                
-        output = self.decoder(trg, enc_src, trg_mask, src_mask)
-        
-        #output = [batch size, trg len, output dim]
-        
-        return output
+        # Transpose pad masks (PyTorch transformers want batch size first)
+        if src_pad_mask is not None: src_pad_mask.transpose_(0, 1) # src_pad_mask: (batch_size, src_len)
+        if trg_pad_mask is not None: trg_pad_mask.transpose_(0, 1) # trg_pad_mask: (batch_size, trg_len)
+
+        # Make position tensors
+        src_positions = torch.arange(0, src_len).unsqueeze(1).expand(src_len, batch_size).to(self.device)
+        trg_positions = torch.arange(0, trg_len).unsqueeze(1).expand(trg_len, batch_size).to(self.device)
+
+        # Add position embeddings to input embeddings
+        src = self.dropout(src + self.src_positional_embedding(src_positions))
+        trg = self.dropout(trg + self.trg_positional_embedding(trg_positions))
+
+        # Get target subsequent mask
+        trg_subsequent_mask = self.transformer.generate_square_subsequent_mask(trg_len).to(self.device)
+
+        if self.training:
+            # Training, just a single forward pass is needed
+            out = self.transformer(src=src, tgt=trg, src_key_padding_mask=src_pad_mask, tgt_key_padding_mask=trg_pad_mask, tgt_mask=trg_subsequent_mask)
+        else:
+            # Inference, autoregressive loop through decoder is needed
+            for i in range(self.max_len):
+
+
+        # out shape: (trg_len, batch size, dim)
+        return out
