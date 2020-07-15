@@ -37,7 +37,7 @@ def tokenize_spacy(sentence, full_token_data=False, spacy_model=None):
 
 
 def tokenize_wordpiece(sentence, special_tokens=False, full_token_data=False, lowercase=True):
-    sentence = copy.deepcopy(sentence)
+    #sentence = copy.deepcopy(sentence)
     '''General WordPiece tokenization function.\n
     Inputs:
         sentence: any possibly jagged collection of strings / tuples of strings (for BERT seperation)
@@ -54,11 +54,11 @@ def tokenize_wordpiece(sentence, special_tokens=False, full_token_data=False, lo
     if not isinstance(tokenizer, BertWordPieceTokenizer):
         tokenizer = BertWordPieceTokenizer(os.path.join(os.path.dirname(os.path.abspath(__file__)), "bert-base-uncased-vocab.txt"), lowercase=lowercase)
     
-    if isinstance(sentence, str) or isinstance(sentence, tuple): # Tokenize string right away
-        if full_token_data:
-            return tokenizer.encode(*sentence if isinstance(sentence, tuple) else sentence) if special_tokens else tokenizer.encode(*sentence if isinstance(sentence, tuple) else sentence)[1:-1]
-        else:
-            return tokenizer.encode(*sentence if isinstance(sentence, tuple) else sentence).tokens if special_tokens else tokenizer.encode(*sentence if isinstance(sentence, tuple) else sentence).tokens[1:-1]
+    if isinstance(sentence, str) or isinstance(sentence, tuple):
+        tokenized = tokenizer.encode(sentence) if isinstance(sentence, str) else tokenizer.encode(sentence[0], sentence[1])
+        if not full_token_data: tokenized = tokenized.tokens
+        if not special_tokens: tokenized = tokenized[1:-1]
+        return tokenized
     
     # Traverse list, return linearized list of strings/pairs and insert index numbers into the main list
     main_list, linear_list = extract_bottom_items(main_list=sentence, base_types=[str, tuple])

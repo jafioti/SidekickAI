@@ -48,7 +48,8 @@ def batch_to_train_data(indexes_batch, PAD_token, return_lengths=False, return_p
     return tuple(return_list) if len(return_list) > 1 else return_list[0]
 
 # Filters list or lists by a max length
-def filter_by_length(lists, max_length):
+def filter_by_length(*lists, max_length):
+    lists = [*lists]
     if isinstance(lists[0], list):
         new_lists = [[] for i in range(len(lists))]
         # List of lists

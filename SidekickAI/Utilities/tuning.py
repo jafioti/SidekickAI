@@ -1,11 +1,11 @@
-import random, math, inspect, sys, os, copy
+import random, math, sys, os, copy
 from torch.utils.tensorboard import SummaryWriter
 import torch
 
+from SidekickAI.Utilities.utils import filter_args_dict_to_function
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-def filter_args_dict_to_function(args_dict, function): # Helper function to filter argument dictionary to only contain arguments that a function accepts
-        return {k: v for k, v in args_dict.items() if k in [parameter.name for parameter in inspect.signature(function).parameters.values()]}
 
 # Hyperparameter tuner that uses a genetic algorithim to evolve the hyperparameters
 # Hyperparameters to be adjusted are to be passed in as a range (floats are chosen as floats, while ints are chosen as ints)
