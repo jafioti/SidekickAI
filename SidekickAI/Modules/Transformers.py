@@ -58,6 +58,7 @@ class EmbeddingTransformerSeq2Seq(nn.Module):
 
         # Handle target given/autoregressive
         if trg is None:
+            assert batch_size == 1, "In autoregressive mode, the batch size must be 1"
             autoregressive = True
             trg = torch.full((1, batch_size), fill_value=self.target_vocab.SOS_token, dtype=torch.long, device=self.device)
             final_out = torch.zeros((self.max_len, batch_size, self.target_vocab.num_words), device=self.device) # To hold the distributions
@@ -98,9 +99,10 @@ class EmbeddingTransformerSeq2Seq(nn.Module):
                 trg = torch.cat((trg, torch.argmax(out[-1], dim=-1).unsqueeze(1)), dim=0)
                 if all([any(trg[:, x] == self.target_vocab.EOS_token) for x in range(batch_size)]): # EOS was outputted in all batches
                     return final_out[:i + 1]
+            else: final_out = out
 
         # out shape: (trg_len, batch size, target_num_words)
-        return out
+        return final_out
 
 class VectorTransformerSeq2Seq(nn.Module):
     def __init__(self, input_size, input_vocab_size, target_vocab_size, num_heads, num_encoder_layers, num_decoder_layers, forward_expansion, pad_idx, dropout=0.1, max_len=50, device=torch.device("cuda" if torch.cuda.is_available() else "cpu")):
