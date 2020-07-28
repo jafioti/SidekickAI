@@ -14,7 +14,9 @@ def load_model(path, model_class):
 
 def save_model(path, model):
     from torch import save
-    '''Saves a model to a file containing the state dict and the hyperparameters'''
+    '''Saves a model to a file containing the state dict and the hyperparameters.\n
+    Any model to be saved must have this line of code at the top of it's __init__ function:
+        self.hyperparameters = locals()'''
     assert hasattr(model, "state_dict"), "The model does not have a state dict"
     assert hasattr(model, "hyperparameters"), "The model does not have a 'hyperparameters' variable"
     save({"state_dict":model.state_dict(), "hyperparameters":model.hyperparameters}, path)
