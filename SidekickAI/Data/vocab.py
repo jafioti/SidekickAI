@@ -58,7 +58,7 @@ class Vocab:
 
     def fit_counts_to_corpus(self, corpus, tokenizer=None): # Count the token frequency in the corpus and normalize
         if tokenizer is None:
-            from Sidekick.Data import tokenization
+            from SidekickAI.Data import tokenization
             tokenizer = tokenization.tokenize
         # Count
         def count_tokens(corpus):
@@ -88,24 +88,31 @@ class Vocab:
                 if nextLevel is not None:
                     current.append(nextLevel)
             return current
-        else:
+        elif isinstance(tokens, list):
             return [self.word2index[word] for word in tokens]
+        else:
+            return self.word2index[tokens]
 
     # Recursivly gets tokens
     def tokens_from_indexes(self, indexes):
         if indexes is None:
             return []
+        if isinstance(indexes, int):
+            return self.index2word[int(indexes)]
         if len(indexes) == 0:
             return []
         if isinstance(indexes[0], list):
             current = []
             for i in range(len(indexes)):
-                nextLevel = self.indexes_from_tokens(indexes[i])
+                nextLevel = self.tokens_from_indexes(indexes[i])
                 if nextLevel is not None:
                     current.append(nextLevel)
             return current
-        else:
+        elif isinstance(indexes, list):
             return [self.index2word[int(index)] for index in indexes]
+
+    def contains_token(self, token):
+        return token in self.word2index
 
 #Creates a vocab for the bert wordpeice tokenizer
 def getBertWordPieceVocab(additional_tokens=None):
@@ -124,3 +131,16 @@ def getBertWordPieceVocab(additional_tokens=None):
     for i in range(len(voc.word2count)):
         voc.word2count[list(voc.word2count.keys())[i]] = vocabCounts[i]
     return(voc)
+
+# Make a vocab containing the alphabet and puncuation
+def getAlphabetVocab(additional_tokens=None):
+    assert additional_tokens is None or (isinstance(additional_tokens, list) and isinstance(additional_tokens[0], str))
+    from string import ascii_lowercase
+    voc = Vocab("alphabetVocab")
+    for letter in ascii_lowercase:
+        voc.addWord(str(letter))
+    voc.addList([".", "'", "!", "?", " ", ",", ";", "-"])
+    if additional_tokens is not None:
+        for i in range(len(additional_tokens)):
+            voc.addWord(additional_tokens[i])
+    return voc

@@ -103,6 +103,14 @@ def tokenize_moses(sentence, lowercase=True):
 
     return main_list
 
+def tokenize_alphabet(sentence, lowercase=True):
+    sentence = copy.deepcopy(sentence.lower() if lowercase else sentence)
+    ''' Tokenizes sentence to the alphabet vocab'''
+    tokenized = []
+    for char in sentence:
+        tokenized.append(char)
+    return tokenized
+
 # RECURSIVE TREE FUNCTIONS
 def extract_bottom_items(main_list, base_types, linear_list=[]):
     assert list not in base_types, "List cannot be a base type!"
@@ -183,4 +191,24 @@ def untokenize_moses(tokens):
             raise Exception("The list of tokens cannot be jagged!")
         else:
             return tokenizer.detokenize(tokens)
+    return tokens
+
+def untokenize_alphabet(tokens):
+    tokens = copy.deepcopy(tokens)
+    '''Untokenization function for Alphabet tokens\n
+    Inputs:
+        tokens: any possible non jagged list of tokens
+    Returns:
+        sentences: the same list of tokens, with the bottom level list replaced with a string'''
+    if tokens is None:
+        return ""
+    if len(tokens) == 0:
+        return ""
+    for i in range(len(tokens)):
+        if isinstance(tokens[i], list):
+            tokens[i] = untokenize_alphabet(tokens[i])
+        elif i > 0:
+            raise Exception("The list of tokens cannot be jagged!")
+        else:
+            return "".join(tokens)
     return tokens

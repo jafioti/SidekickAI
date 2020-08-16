@@ -20,6 +20,9 @@ def pad_mask(input_batch, pad_value):
 def pad_batch(input_batch, fillvalue):
     return list(itertools.zip_longest(*input_batch, fillvalue=fillvalue))
 
+# Makes batches from a raw list of examples
+#def batch(dataset):
+
 # Returns padded sequence tensor, lengths, and pad mask
 def batch_to_train_data(indexes_batch, PAD_token, return_lengths=False, return_pad_mask=False):
     '''
@@ -82,18 +85,20 @@ def shuffle_lists(*lists):
     random.shuffle(zipped_lists)
     return zip(*zipped_lists)
 
-def sort_lists_by_length(sorting_list, *other_lists, longest_first=False):
+def sort_lists_by_length(sorting_list, *other_lists, sorting_function=None, longest_first=False):
     '''
     Sort multiple lists by the lengths of the first list of lists
         Inputs:
             sorting_list (list of lists): The list of lists to be used when sorting
             other_lists (lists): The other lists to be sorted in the same way
+            sort_function (function): A function determining the way to find the length of the example
             *longest_first (bool): Sort with the longest coming first [default: False]
         Outputs:
             lists (lists): The sorted lists
         Usage:
             list1, list2, list3 = sort_lists_by_length(list1, list2, list3)
     '''
-    zipped_lists = list(zip(sorting_list, *other_lists))
-    zipped_lists.sort(reverse=longest_first, key=lambda x: len(x[0]))
-    return zip(*zipped_lists)
+    is_other_lists = other_lists is not None and len(other_lists) > 0
+    zipped_lists = list(zip(sorting_list, *other_lists)) if is_other_lists else sorting_list
+    zipped_lists.sort(reverse=longest_first, key=(lambda x: len(x[0])) if sorting_function is None else sorting_function)
+    return zip(*zipped_lists) if is_other_lists else zipped_lists

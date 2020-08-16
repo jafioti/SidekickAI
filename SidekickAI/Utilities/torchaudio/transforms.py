@@ -4,7 +4,7 @@ from warnings import warn
 
 import torch
 from torch import Tensor
-import torchaudio.functional as F
+import SidekickAI.Utilities.torchaudio.functional as F
 
 
 __all__ = [

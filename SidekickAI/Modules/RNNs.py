@@ -8,8 +8,8 @@ import torch.nn as nn
 from enum import Enum
 
 import torch.nn.functional as F
-import csv, random, re, os, math
-from SidekickAI.Models.Attention import ContentAttention
+import csv, random, re, os, math, time
+from SidekickAI.Modules.Attention import ContentAttention
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -55,26 +55,76 @@ class RNNDecoder(nn.Module):
         super().__init__()
         assert (rnn_type == nn.RNN or rnn_type == nn.LSTM or rnn_type == nn.GRU), "rnn_type must be a valid RNN type (torch.RNN, torch.LSTM, or torch.GRU)"
 
-        self.input = nn.Linear(input_size, hidden_size)
-        self.rnn = rnn_type(hidden_size, hidden_size, num_layers=1, dropout=dropout)
-        self.out = nn.Linear(hidden_size, output_size)
+        self.input = nn.Linear(input_size, hidden_size) if input_size != hidden_size else None
+        self.rnn = rnn_type(hidden_size, hidden_size, num_layers=n_layers, dropout=dropout)
+        self.out = nn.Linear(hidden_size, output_size) if hidden_size != output_size else None
 
     def forward(self, x, hidden):
         #X: (1, batch_size, embedding_size)
         # Scale up input to hidden size
-        x = self.input(x)
+        if self.input is not None: x = self.input(x)
         #Pass through GRU
         outputs, hidden = self.rnn(x, hidden)
-        # Scale up to output size
-        outputs = self.out(outputs)
+        # Scale to output size
+        if self.out is not None: outputs = self.out(outputs)
         return(outputs, hidden)
+
+class RawRNNSeq2Seq(nn.Module):
+    def __init__(self, input_size, hidden_size, output_size, encoder_layers, decoder_layers, output_vocab, input_vocab=None, encoder_rnn_type=nn.GRU, decoder_rnn_type=nn.GRU, use_attention=False, dropout=0., device=torch.device("cuda" if torch.cuda.is_available() else "cpu")):
+        super().__init__()
+        self.input_vocab = input_vocab
+        self.output_vocab = output_vocab
+        if input_vocab is not None: self.input_embedding = nn.Embedding(input_vocab.num_words, input_size)
+        self.output_embedding = nn.Embedding(output_vocab.num_words, output_size)
+        self.classifier = nn.Sequential(nn.ReLU(), nn.Linear(output_size, output_vocab.num_words))
+        self.encoder = RNNEncoder(input_size=input_size, hidden_size=hidden_size, n_layers=encoder_layers, rnn_type=encoder_rnn_type, dropout=dropout)
+        self.decoder = RNNDecoder(output_size, hidden_size=hidden_size * 2, output_size=output_size, n_layers=decoder_layers, rnn_type=decoder_rnn_type, dropout=dropout)
+        self.hidden_bridges = nn.ModuleList([nn.Linear(hidden_size * 2, hidden_size * 2) for i in range(decoder_layers)])
+        self.use_attention = use_attention
+        if use_attention: self.attention = ContentAttention(hidden_size * 2, hidden_size * 2)
+        self.encoder_layers, self.decoder_layers, self.hidden_size = encoder_layers, decoder_layers, hidden_size
+        self.device = device
+
+    def forward(self, input_seq, decoding_steps=None, target=None):
+        if target is not None: decoding_steps = target.shape[0]
+        assert decoding_steps is not None or not self.training, "In training mode, decoding steps must be provided"
+        batch_size = input_seq.shape[1]
+        # Run through encoder embedding
+        if self.input_vocab is not None: input_seq = self.input_embedding(input_seq)
+        # Run through encoder
+        encoder_output, encoder_hidden = self.encoder(input_seq)
+        # Transfer hidden states
+        decoder_hidden = torch.zeros(self.decoder_layers, batch_size, self.hidden_size * 2).to(self.device)
+        for i in range(self.decoder_layers):
+            decoder_hidden[i] = self.hidden_bridges[i](encoder_hidden)
+        # Loop through decoding loop
+        decoder_input = self.output_embedding(torch.full((1, batch_size), fill_value=self.output_vocab.SOS_token, dtype=torch.long).to(self.device)) if self.output_vocab is not None else self.start_vector.repeat(1,input_seq.shape[1],1)
+        final_output = torch.zeros((target.shape[0], batch_size, self.output_vocab.num_words) if target is not None else (200, batch_size, self.output_vocab.num_words), dtype=torch.float).to(self.device)
+        for decoding_step in range(decoding_steps if decoding_steps is not None else 200): # Picked 200 as an arbitrary max seq len
+            # Get context vector
+            if self.use_attention: context_vector = self.attention(decoder_hidden[-1], encoder_output.transpose(0,1), return_weighted_sum=True)
+            # Run through decoder
+            decoder_output, decoder_hidden = self.decoder(decoder_input, decoder_hidden)
+            # Add to final output
+            final_output[decoding_step] = self.classifier(decoder_output)
+
+            # Get next input
+            if target is None:
+                decoder_input = self.output_embedding(torch.argmax(final_output[decoding_step].unsqueeze(0), dim=-1))
+            else:
+                #decoder_input = self.output_embedding(torch.argmax(final_output[decoding_step].unsqueeze(0), dim=-1))
+                decoder_input = self.output_embedding(target[decoding_step].unsqueeze(0))
+            if decoding_steps is None: 
+                if torch.argmax(final_output[decoding_step][0], dim=-1) == self.output_vocab.EOS_token:
+                    return final_output[:decoding_step]
+        return final_output
 
 # RNN-Based Encoder-Decoder Seq2Seq with optional attention, fixed decoding steps, and dynamic stopping
 class RNNSeq2Seq(nn.Module):
     def __init__(self, input_size, hidden_size, encoder_layers, decoder_layers, local_vocab, max_target_length, encoder_rnn_type=nn.GRU, decoder_rnn_type=nn.GRU, use_attention=False, dynamic_stopping=False, custom_embedding=nn.Embedding, dropout=0):
         super().__init__()
         # Layers
-        if custom_embedding == nn.Embedding: # Allow other embeddings to optionally be loaded, or set custom_embedding to -1 to not embed at all
+        if custom_embedding != nn.Embedding: # Allow other embeddings to optionally be loaded, or set custom_embedding to -1 to not embed at all
             self.embedding = nn.Embedding(num_embeddings=local_vocab.num_words, embedding_dim=input_size)
         else:
             self.embedding = custom_embedding
@@ -122,6 +172,7 @@ class RNNSeq2Seq(nn.Module):
         if self.dynamic_stopping and decoding_steps is None: 
             dynamic_stop_prob = torch.zeros(batch_size).to(device)
         idx = torch.BoolTensor(batch_size).fill_(1).to(device)
+        context_vector = None
 
         # Decoding loop
         for decoding_step in range(decoding_steps if decoding_steps is not None else self.max_target_length):
