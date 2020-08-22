@@ -4,8 +4,8 @@ from torch import LongTensor, BoolTensor, Tensor
 import SidekickAI.Data.tokenization
 # This file holds functions to convert sentence pair batches to structured tensors to feed into models
 
-# Makes binary (0, 1) matrix for batch depending on if token is padding (0 if so, 1 if not)
 def pad_mask(input_batch, pad_value):
+    '''Makes binary (0, 1) matrix for batch depending on if token is padding (0 if so, 1 if not)'''
     m = []
     for i, seq in enumerate(input_batch):
         m.append([])
@@ -16,8 +16,8 @@ def pad_mask(input_batch, pad_value):
                 m[i].append(1)
     return m
 
-# Pads all inputs to longest input
 def pad_batch(input_batch, fillvalue):
+    '''Pads all inputs to longest input'''
     return list(itertools.zip_longest(*input_batch, fillvalue=fillvalue))
 
 # Makes batches from a raw list of examples
@@ -50,8 +50,8 @@ def batch_to_train_data(indexes_batch, PAD_token, return_lengths=False, return_p
         return_list.append(BoolTensor(pad_mask(padList, pad_value=PAD_token)))
     return tuple(return_list) if len(return_list) > 1 else return_list[0]
 
-# Filters list or lists by a max length
 def filter_by_length(*lists, max_length):
+    '''Filters list or lists by a max length and returns the onces under the max'''
     lists = [*lists]
     if isinstance(lists[0], list):
         new_lists = [[] for i in range(len(lists))]

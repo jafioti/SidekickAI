@@ -3,6 +3,15 @@
 
 class Vocab:
     def __init__(self, name, PAD_token=0, SOS_token=1, EOS_token=2):
+        '''The vocab object that contains all data about a single vocabulary.\n
+        Vocabularies are simply collections of tokens with mappings to and from indexes, so they can be used for many different things\n
+        Inputs:
+            name (string): The name of the vocabulary
+            PAD_token [Default: 0] (int): The index of the padding token
+            SOS_token [Default: 1] (int): The index of the start-of-sentence token
+            EOS_token [Default: 2] (int): The index of the end-of-sentence token
+        '''        
+
         self.name = name
         self.trimmed = False
         self.word2index = {"PAD": PAD_token, "SOS": SOS_token, "EOS": EOS_token}
@@ -13,12 +22,21 @@ class Vocab:
         self.SOS_token = SOS_token # Start-of-sentence token
         self.EOS_token = EOS_token # End-of-sentence token
 
-    def addSentence(self, sentence, custom_tokenization_function=None): # Add sentence tokenized by spaces or custom function
+    def add_sentence(self, sentence, custom_tokenization_function=None): 
+        '''Add sentence tokenized by spaces or custom function\n
+        Inputs:
+            sentence (string): The sentence with tokens to be added
+            custom_tokenization_funtion [Default: None] (function): The function to be used to tokenize the sentence
+        '''
         words = sentence.split(' ') if custom_tokenization_function is None else custom_tokenization_function(sentence)
         for word in words:
             self.addWord(word)
 
-    def addWord(self, word): # Add single token to vocab
+    def add_word(self, word):
+        '''Add single token to vocab\n
+        Inputs:
+            word (string): The word to be added as a token to the vocab
+        '''
         if word not in self.word2index:
             self.word2index[word] = self.num_words
             self.word2count[word] = 1
@@ -27,12 +45,18 @@ class Vocab:
         else:
             self.word2count[word] += 1
     
-    def addList(self, ls): # Add list of tokens to vocab
+    def add_list(self, token_list): 
+        '''Add list of tokens to vocab\n
+        Inputs:
+            token_list (list of strings): A list of tokens to be added to the vocab
+        '''
         for i in range(len(ls)):
             self.addWord(ls[i])
 
-    # Remove words below a certain count threshold
     def trim(self, min_count):
+        '''Remove words from the vocab below a certain count threshold. Requires a count to have been fitted on a corpus of text\n
+        Inputs:
+            min_count (float): The minimum count a word should have to be kept'''
         if self.trimmed:
             return
         self.trimmed = True
@@ -56,7 +80,12 @@ class Vocab:
         for word in keep_words:
             self.addWord(word)
 
-    def fit_counts_to_corpus(self, corpus, tokenizer=None): # Count the token frequency in the corpus and normalize
+    def fit_counts_to_corpus(self, corpus, tokenizer=None): 
+        '''Count the token frequency in the corpus and normalize over the total number of tokens
+        Inputs:
+            corpus (string): The corpus of text to be fitted on
+            tokenizer [Default: None] (function): The function to be used to tokenize the corpus
+        '''
         if tokenizer is None:
             from SidekickAI.Data import tokenization
             tokenizer = tokenization.tokenize
@@ -75,8 +104,11 @@ class Vocab:
         for i in range(len(list(self.word2count.values()))):
             self.word2count[list(self.word2count.keys())[i]] /= max_count
 
-    # Recursivly gets indexes
+    # Recursively gets indexes
     def indexes_from_tokens(self, tokens):
+        '''Converts a list or tree of lists of tokens to a list or tree of lists of indexes\n
+        Inputs:
+            tokens (list or tree of lists of strings): THe collection of tokens to be converted to indexes'''
         if tokens is None:
             return
         if len(tokens) == 0:
@@ -95,6 +127,9 @@ class Vocab:
 
     # Recursivly gets tokens
     def tokens_from_indexes(self, indexes):
+        '''Converts a list or tree of lists of indexes to a list or tree of lists of tokens\n
+        Inputs:
+            indexes (list or tree of lists of ints): THe collection of indexes to be converted to tokens'''
         if indexes is None:
             return []
         if isinstance(indexes, int):
@@ -112,7 +147,20 @@ class Vocab:
             return [self.index2word[int(index)] for index in indexes]
 
     def contains_token(self, token):
+        '''Check if the vocab contains a certain token\n
+        Inputs:
+            token (string): The token to check for
+        Returns:
+            contains (bool): Whether or not the vocab contains the token'''
         return token in self.word2index
+    
+    def contains_index(self, index):
+        '''Check if the vocab contains a certain index\n
+        Inputs:
+            index (int): The index to check for
+        Returns:
+            contains (bool): Whether or not the vocab contains the index'''
+        return index < len(self.index2word) and index > -1
 
 #Creates a vocab for the bert wordpeice tokenizer
 def getBertWordPieceVocab(additional_tokens=None):
