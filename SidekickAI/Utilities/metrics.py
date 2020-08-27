@@ -1,4 +1,5 @@
 import string, re
+import numpy as np
 from collections import Counter
 
 def f1(pred, answers):
@@ -79,14 +80,13 @@ def word_error_rate(candidate, target, ignore_case=False, delimiter=' '):
         target = target.lower()
         candidate = candidate.lower()
 
-    ref_words = target.split(delimiter)
-    hyp_words = candidate.split(delimiter)
+    target = target.split(delimiter)
+    candidate = candidate.split(delimiter)
 
-    if len(ref_words) == 0:
-        raise ValueError("target's word number should be greater than 0.")
+    if len(target) == 0: return 1
 
-    edit_distance = levenshtein_distance(ref_words, hyp_words)
-    return float(edit_distance) / len(ref_words)
+    edit_distance = levenshtein_distance(target, candidate)
+    return float(edit_distance) / len(target)
 
 
 def character_error_rate(candidate, target, ignore_case=False, remove_space=False):
@@ -111,31 +111,26 @@ def character_error_rate(candidate, target, ignore_case=False, remove_space=Fals
         target = target.lower()
         candidate = candidate.lower()
 
-    join_char = ' '
     if remove_space == True:
-        join_char = ''
+        target = target.replace(" ", "")
+        candidate = candidate.replace(" ", "")
 
-    target = join_char.join(filter(None, target.split(' ')))
-    candidate = join_char.join(filter(None, candidate.split(' ')))
+    if len(target) == 0: return 1
 
-    if len(target) == 0:
-        raise ValueError("Length of target should be greater than 0.")
-
-    edit_distance = levenshtein_distance(target, candidate)
+    edit_distance = levenshtein_distance(target.split(), candidate.split())
     return float(edit_distance) / len(target)
 
 def levenshtein_distance(sentence1, sentence2):
     """Levenshtein distance is a string metric for measuring the difference
     between two sequences. Informally, the levenshtein disctance is defined as
     the minimum number of single-character edits (substitutions, insertions or
-    deletions) required to change one word into the other.\n
+    deletions) required to change one word into the other. This can naturally be expanded to words.\n
     Inputs:
         sentence1 (string): The first sentence
         sentence2 (string): The second sentence
     Returns:
         levenshtein_distance (float): The levenshtein distance between the two strings
     """
-    import numpy as np
     s1_len = len(sentence1)
     s2_len = len(sentence2)
 
@@ -147,7 +142,7 @@ def levenshtein_distance(sentence1, sentence2):
     if s2_len == 0:
         return s1_len
 
-    if s1_len < s2_len: # Ensure that sentence 1 is longer or equal
+    if s1_len < s2_len: # Ensure that sentence 1 is longer or equal to sentence 2
         sentence1, sentence2 = sentence2, sentence1
         s1_len, s2_len = s2_len, s1_len
 

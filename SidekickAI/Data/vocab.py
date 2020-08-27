@@ -30,7 +30,7 @@ class Vocab:
         '''
         words = sentence.split(' ') if custom_tokenization_function is None else custom_tokenization_function(sentence)
         for word in words:
-            self.addWord(word)
+            self.add_word(word)
 
     def add_word(self, word):
         '''Add single token to vocab\n
@@ -50,8 +50,8 @@ class Vocab:
         Inputs:
             token_list (list of strings): A list of tokens to be added to the vocab
         '''
-        for i in range(len(ls)):
-            self.addWord(ls[i])
+        for i in range(len(token_list)):
+            self.add_word(token_list[i])
 
     def trim(self, min_count):
         '''Remove words from the vocab below a certain count threshold. Requires a count to have been fitted on a corpus of text\n
@@ -78,7 +78,7 @@ class Vocab:
         self.num_words = 3 # Count default tokens
 
         for word in keep_words:
-            self.addWord(word)
+            self.add_word(word)
 
     def fit_counts_to_corpus(self, corpus, tokenizer=None): 
         '''Count the token frequency in the corpus and normalize over the total number of tokens
@@ -88,7 +88,7 @@ class Vocab:
         '''
         if tokenizer is None:
             from SidekickAI.Data import tokenization
-            tokenizer = tokenization.tokenize
+            tokenizer = tokenization.tokenize_wordpiece
         # Count
         def count_tokens(corpus):
             if isinstance(corpus, list):
@@ -170,10 +170,10 @@ def getBertWordPieceVocab(additional_tokens=None):
     current_dir = os.path.dirname(os.path.abspath(__file__))
     vocabLines = open(os.path.join(current_dir, "bert-base-uncased-vocab.txt"), "rb").readlines()
     for i in range(len(vocabLines)):
-        voc.addWord(vocabLines[i].decode("utf-8").replace("\n", "").strip())
+        voc.add_word(vocabLines[i].decode("utf-8").replace("\n", "").strip())
     if additional_tokens is not None:
         for i in range(len(additional_tokens)):
-            voc.addWord(additional_tokens[i])
+            voc.add_word(additional_tokens[i])
     vocabCounts = open(os.path.join(current_dir, "wordCounts.txt"), "r", encoding="utf-8").readlines()
     vocabCounts = [float(i.replace('\n', '')) for i in vocabCounts]
     for i in range(len(voc.word2count)):
@@ -186,9 +186,9 @@ def getAlphabetVocab(additional_tokens=None):
     from string import ascii_lowercase
     voc = Vocab("alphabetVocab")
     for letter in ascii_lowercase:
-        voc.addWord(str(letter))
-    voc.addList([".", "'", "!", "?", " ", ",", ";", "-"])
+        voc.add_word(str(letter))
+    voc.add_list([".", "'", "!", "?", " ", ",", ";", "-"])
     if additional_tokens is not None:
         for i in range(len(additional_tokens)):
-            voc.addWord(additional_tokens[i])
+            voc.add_word(additional_tokens[i])
     return voc

@@ -81,9 +81,9 @@ def shuffle_lists(*lists):
         Usage:
             list1, list2, list3 = shuffle_lists(list1, list2, list3)
     '''
-    zipped_lists = list(zip(*lists))
+    zipped_lists = list(zip(*lists)) if len(lists) > 1 else lists
     random.shuffle(zipped_lists)
-    return zip(*zipped_lists)
+    return zip(*zipped_lists) if len(lists) > 1 else zipped_lists
 
 def sort_lists_by_length(sorting_list, *other_lists, sorting_function=None, longest_first=False):
     '''

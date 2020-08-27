@@ -104,15 +104,24 @@ def tokenize_moses(sentence, lowercase=True):
     return main_list
 
 def tokenize_alphabet(sentence, lowercase=True):
-    sentence = copy.deepcopy(sentence.lower() if lowercase else sentence)
     ''' Tokenizes sentence to the alphabet vocab'''
-    tokenized = []
-    for char in sentence:
-        tokenized.append(char)
-    return tokenized
+    sentence = copy.deepcopy(sentence)
+    if type(sentence) == str: return [char for char in (sentence.lower() if lowercase else sentence)]
+
+    # Traverse list, return linearized list of strings/pairs and insert index numbers into the main list
+    main_list, linear_list = extract_bottom_items(main_list=sentence, base_types=[str])
+
+    # Tokenize the linear list
+    for i in range(len(linear_list)):
+        linear_list[i] = [char for char in (linear_list[i].lower() if lowercase else linear_list[i])]
+
+    # Add the linear list items back to the main list
+    main_list = insert_bottom_items(main_list=main_list, linear_list=linear_list)
+    return main_list
 
 # RECURSIVE TREE FUNCTIONS
-def extract_bottom_items(main_list, base_types, linear_list=[]):
+def extract_bottom_items(main_list, base_types, linear_list=None):
+    if linear_list is None: linear_list = []
     assert list not in base_types, "List cannot be a base type!"
     # Check each element in list to see if it is another list, a string, or a tuple
     for i in range(len(main_list)):
