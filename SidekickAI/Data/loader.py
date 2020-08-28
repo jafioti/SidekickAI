@@ -23,5 +23,34 @@ class DataLoader:
         self.start_index = start_index
         self.end_index = end_index
 
+        self.batch_queue = JoinableQueue()
+
         if preload:
-            
+            # Call the loading function and join all of the created processes before returning fron the __init__ function
+            self.load_data(start_index, end_index)
+            # Join the processes
+            for process in multiprocessing.active_children():
+                process.join()
+            # Make preloaded list
+            self.preload_list = []
+            while not self.batch_queue.empty():
+                self.preload_list.append(self.batch_size.get())
+        
+        
+    def __iter__(self):
+        return iter(self.preload_list) if self.preload else self
+
+    def __next__(self):
+        
+
+    def load_data(self, start_index, end_index):
+        # Divide the data into num_workers slices to feed into each worker
+        slice_size = (end_index - start_index) // self.num_workers
+        for i in range(self.num_workers):
+            job = Process(target=load_job, args=(self, start_index + (slice_size * i), start_index + (slice_size * (i + 1))))
+            job.start()
+
+
+def load_job(loader, start_index, end_index): # The job to be run in each worker
+    for i in range(end_index - start_index):
+        self.batch_queue.put(self.load_function(self, i))
