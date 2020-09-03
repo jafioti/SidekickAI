@@ -81,9 +81,9 @@ def shuffle_lists(*lists):
         Usage:
             list1, list2, list3 = shuffle_lists(list1, list2, list3)
     '''
-    zipped_lists = list(zip(*lists)) if len(lists) > 1 else lists
+    zipped_lists = list(zip(*lists)) if len(lists) > 1 else lists[0]
     random.shuffle(zipped_lists)
-    return zip(*zipped_lists) if len(lists) > 1 else zipped_lists
+    return zip(*zipped_lists) if len(lists) > 1 else [zipped_lists]
 
 def sort_lists_by_length(sorting_list, *other_lists, sorting_function=None, longest_first=False):
     '''
@@ -102,3 +102,16 @@ def sort_lists_by_length(sorting_list, *other_lists, sorting_function=None, long
     zipped_lists = list(zip(sorting_list, *other_lists)) if is_other_lists else sorting_list
     zipped_lists.sort(reverse=longest_first, key=(lambda x: len(x[0])) if sorting_function is None else sorting_function)
     return zip(*zipped_lists) if is_other_lists else zipped_lists
+
+def shuffle_lists_retain_batches(batch_size, *args):
+        # Shuffle but retain the batches
+        # Batch
+        args = list(args)
+        for i in range(len(args)):
+            args[i] = [args[i][x:x + batch_size] for x in range(0, len(args[i]) - batch_size, batch_size)]
+        # Shuffle them
+        args = list(shuffle_lists(*args))
+        # Unbatch
+        for i in range(len(args)):
+            args[i] = [subitem for sublist in args[i] for subitem in sublist]
+        return args

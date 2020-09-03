@@ -92,16 +92,13 @@ class PyramidRNNEncoder(nn.Module): # MAY NEED TO FIX SHAPES
 
         # Feed through rnn layers
         for i in range(len(self.rnns)):
-            print("temp " + str(inputs.shape))
             # Concat neighbors
             inputs = inputs.contiguous().view(2, int(inputs.shape[1] / 2), batch_size, int(inputs.shape[-1] * 2)) if i > 0 else inputs.contiguous().view(int(inputs.shape[0] / 2), batch_size, int(inputs.shape[-1] * 2))
             # Feed through layer
             inputs, hidden = self.rnns[i](inputs)
             # Dropout
             if i != self.n_layers - 1: F.dropout(inputs, self.dropout)
-        
-        print("Final Hidden: " + str(hidden.shape))
-        print("Final Output: " + str(inputs.shape))
+
         # Concat final hiddens
         hidden = hidden.view(1, 2, batch_size, self.final_hidden_size)
         hidden = torch.cat((hidden[:, 0], hidden[:, 1]), dim=-1)[-1]
@@ -132,7 +129,7 @@ class RNNDecoder(nn.Module):
         return(outputs, hidden)
 
 class RawRNNSeq2Seq(nn.Module):
-    def __init__(self, input_size, hidden_size, output_size, encoder_layers, decoder_layers, output_vocab, input_vocab=None, encoder_rnn_type=nn.GRU, decoder_rnn_type=nn.GRU, use_attention=False, dropout=0., device=torch.device("cuda" if torch.cuda.is_available() else "cpu")):
+    def __init__(self, input_size, hidden_size, output_size, encoder_layers, decoder_layers, output_vocab, input_vocab=None, encoder_rnn_type=nn.GRU, decoder_rnn_type=nn.GRU, use_attention=False, teacher_forcing_ratio=1, dropout=0., device=torch.device("cuda" if torch.cuda.is_available() else "cpu")):
         super().__init__()
         self.input_vocab = input_vocab
         self.output_vocab = output_vocab
@@ -146,11 +143,13 @@ class RawRNNSeq2Seq(nn.Module):
         if use_attention: self.attention = ContentAttention(hidden_size * 2, hidden_size * 2)
         self.encoder_layers, self.decoder_layers, self.hidden_size = encoder_layers, decoder_layers, hidden_size
         self.device = device
+        self.teacher_forcing_ratio = teacher_forcing_ratio
 
     def forward(self, input_seq, decoding_steps=None, target=None):
         if target is not None: decoding_steps = target.shape[0]
         assert decoding_steps is not None or not self.training, "In training mode, decoding steps must be provided"
         batch_size = input_seq.shape[1]
+
         # Run through encoder embedding
         if self.input_vocab is not None: input_seq = self.input_embedding(input_seq)
         # Run through encoder
@@ -174,8 +173,11 @@ class RawRNNSeq2Seq(nn.Module):
             if target is None:
                 decoder_input = self.output_embedding(torch.argmax(final_output[decoding_step].unsqueeze(0), dim=-1))
             else:
-                #decoder_input = self.output_embedding(torch.argmax(final_output[decoding_step].unsqueeze(0), dim=-1))
-                decoder_input = self.output_embedding(target[decoding_step].unsqueeze(0))
+                if random.random() < self.teacher_forcing_ratio:
+                    decoder_input = self.output_embedding(target[decoding_step].unsqueeze(0))
+                else:
+                    decoder_input = self.output_embedding(torch.argmax(final_output[decoding_step].unsqueeze(0), dim=-1))
+                
             if decoding_steps is None: 
                 if torch.argmax(final_output[decoding_step][0], dim=-1) == self.output_vocab.EOS_token:
                     return final_output[:decoding_step]
