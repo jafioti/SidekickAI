@@ -131,6 +131,7 @@ class RNNDecoder(nn.Module):
 class RawRNNSeq2Seq(nn.Module):
     def __init__(self, input_size, hidden_size, output_size, encoder_layers, decoder_layers, output_vocab, input_vocab=None, encoder_rnn_type=nn.GRU, decoder_rnn_type=nn.GRU, use_attention=False, teacher_forcing_ratio=1, dropout=0., device=torch.device("cuda" if torch.cuda.is_available() else "cpu")):
         super().__init__()
+        self.hyperparameters = locals()
         self.input_vocab = input_vocab
         self.output_vocab = output_vocab
         if input_vocab is not None: self.input_embedding = nn.Embedding(input_vocab.num_words, input_size)
@@ -187,6 +188,7 @@ class RawRNNSeq2Seq(nn.Module):
 class RNNSeq2Seq(nn.Module):
     def __init__(self, input_size, hidden_size, encoder_layers, decoder_layers, local_vocab, max_target_length, encoder_rnn_type=nn.GRU, decoder_rnn_type=nn.GRU, use_attention=False, dynamic_stopping=False, custom_embedding=nn.Embedding, dropout=0):
         super().__init__()
+        self.hyperparameters = locals()
         # Layers
         if custom_embedding != nn.Embedding: # Allow other embeddings to optionally be loaded, or set custom_embedding to -1 to not embed at all
             self.embedding = nn.Embedding(num_embeddings=local_vocab.num_words, embedding_dim=input_size)

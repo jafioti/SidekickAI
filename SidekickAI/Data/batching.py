@@ -50,19 +50,20 @@ def batch_to_train_data(indexes_batch, PAD_token, return_lengths=False, return_p
         return_list.append(BoolTensor(pad_mask(padList, pad_value=PAD_token)))
     return tuple(return_list) if len(return_list) > 1 else return_list[0]
 
-def filter_by_length(*lists, max_length):
+def filter_by_length(*lists, max_length=None, min_length=None):
     '''Filters list or lists by a max length and returns the onces under the max'''
+    assert max_length is not None or min_length is not None, "Either max_length or min_length must be specified"
     lists = [*lists]
     if isinstance(lists[0], list):
         new_lists = [[] for i in range(len(lists))]
         # List of lists
         for i in range(len(lists[0])):
-            too_long = False
+            doesnt_fit = False
             for x in range(len(lists)):
-                if len(lists[x][i]) > max_length:
-                    too_long = True
+                if (max_length is not None and len(lists[x][i]) > max_length) or (min_length is not None and len(lists[x][i]) < min_length):
+                    doesnt_fit = True
                     break
-            if not too_long:
+            if not doesnt_fit:
                 for x in range(len(lists)):
                     new_lists[x].append(lists[x][i])
         return(tuple(new_lists))
@@ -101,7 +102,7 @@ def sort_lists_by_length(sorting_list, *other_lists, sorting_function=None, long
     is_other_lists = other_lists is not None and len(other_lists) > 0
     zipped_lists = list(zip(sorting_list, *other_lists)) if is_other_lists else sorting_list
     zipped_lists.sort(reverse=longest_first, key=(lambda x: len(x[0])) if sorting_function is None else sorting_function)
-    return zip(*zipped_lists) if is_other_lists else zipped_lists
+    return [list(lis) for lis in zip(*zipped_lists)] if is_other_lists else zipped_lists
 
 def shuffle_lists_retain_batches(batch_size, *args):
         # Shuffle but retain the batches

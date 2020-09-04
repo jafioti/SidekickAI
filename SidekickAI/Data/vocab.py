@@ -110,8 +110,10 @@ class Vocab:
         Inputs:
             tokens (list or tree of lists of strings): THe collection of tokens to be converted to indexes'''
         if tokens is None:
+            print("Is None")
             return
         if len(tokens) == 0:
+            print("Zero length")
             return
         if isinstance(tokens[0], list):
             current = []
