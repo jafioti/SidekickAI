@@ -173,13 +173,13 @@ def getBertWordPieceVocab(additional_tokens=None):
     vocabLines = open(os.path.join(current_dir, "bert-base-uncased-vocab.txt"), "rb").readlines()
     for i in range(len(vocabLines)):
         voc.add_word(vocabLines[i].decode("utf-8").replace("\n", "").strip())
-    if additional_tokens is not None:
-        for i in range(len(additional_tokens)):
-            voc.add_word(additional_tokens[i])
     vocabCounts = open(os.path.join(current_dir, "wordCounts.txt"), "r", encoding="utf-8").readlines()
     vocabCounts = [float(i.replace('\n', '')) for i in vocabCounts]
     for i in range(len(voc.word2count)):
         voc.word2count[list(voc.word2count.keys())[i]] = vocabCounts[i]
+    if additional_tokens is not None:
+        for i in range(len(additional_tokens)):
+            voc.add_word(additional_tokens[i])
     return(voc)
 
 # Make a vocab containing the alphabet and puncuation

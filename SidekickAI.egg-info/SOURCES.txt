@@ -1,0 +1,9 @@
+README.md
+setup.cfg
+setup.py
+SidekickAI/__init__.py
+SidekickAI.egg-info/PKG-INFO
+SidekickAI.egg-info/SOURCES.txt
+SidekickAI.egg-info/dependency_links.txt
+SidekickAI.egg-info/requires.txt
+SidekickAI.egg-info/top_level.txt

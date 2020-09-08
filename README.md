@@ -2,6 +2,7 @@
 The main Sidekick AI codebase.
 
 Install at https://pypi.org/project/SidekickAI/
+For some reason, this import does not work (subfolders are not detected)
 
 ## Data
 These scripts contain tools for manipulating and preprocessing NLP data.
