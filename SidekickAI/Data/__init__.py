@@ -1,3 +1,7 @@
+import multiprocessing
+import time, torch, math, random
+from SidekickAI.Data import batching
+
 class Dataset:
     ''' The Sidekick Dataloader Class \n
     Handles multithreaded data loading, batching, preparing, etc... \n
@@ -16,9 +20,6 @@ class Dataset:
         data_chunk_size (int) [Default: None (Dynamic)]: The max number of examples to be loaded in at once. If left as none, will be decided dynamically based on full dataset size. Practically this will never be hit, but it is the theoretical max.
     '''
     def __init__(self, batch_size, load_function, end_index, init_function=None, collate_function=None, start_index=0, preload=False, num_workers=0, data_chunk_size=None, **kwargs):
-        import multiprocessing
-        import time, torch, math, random
-        from SidekickAI.Data import batching
         self.__dict__.update(kwargs) # For any custom variables the user wants to pass in
         self.batch_size = batch_size
         self.preload = preload
