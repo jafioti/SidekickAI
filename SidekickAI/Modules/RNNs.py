@@ -9,7 +9,7 @@ from enum import Enum
 
 import torch.nn.functional as F
 import csv, random, re, os, math, time
-from SidekickAI.Modules.Attention import ContentAttention
+from SidekickAI.Modules.Attention import ContentAttention, LuongAttn
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -36,7 +36,7 @@ class BiRNNModule(nn.Module):
         return torch.stack((forward_out, backward_out), dim=0), torch.stack((forward_hidden, backward_hidden), dim=0)
 
 # RNN-Based bidirectional encoder that takes entire sequence at once and returns output sequence along with final hidden state
-class RNNEncoder(nn.Module):
+class EncoderRNN(nn.Module):
     def __init__(self, input_size, hidden_size, n_layers, rnn_type, dropout=0.):
         super().__init__()
         assert (rnn_type == nn.RNN or rnn_type == nn.LSTM or rnn_type == nn.GRU), "rnn_type must be a valid RNN type (torch.RNN, torch.LSTM, or torch.GRU)"
@@ -62,7 +62,7 @@ class RNNEncoder(nn.Module):
         if self.rnn_type == nn.LSTM: hidden = hidden[0]
         # Concat bidirectional hidden states
         hidden = hidden.view(self.n_layers, 2, batch_size, self.hidden_size)
-        hidden = torch.cat((hidden[:, 0], hidden[:, 1]), dim=-1)[-1]
+        hidden = torch.cat((hidden[:, 0], hidden[:, 1]), dim=-1)
         # Concat bidirectional outputs
         outputs = outputs.view(seq_len, batch_size, 2, self.hidden_size)
         outputs = torch.cat((outputs[:, :, 0], outputs[:, :, 1]), dim=-1)
@@ -108,81 +108,76 @@ class PyramidRNNEncoder(nn.Module): # MAY NEED TO FIX SHAPES
 
         return inputs, hidden
 
-# RNN-Based autoregressive decoder that takes in a single timestep at once
-class RNNDecoder(nn.Module):
-    def __init__(self, input_size, hidden_size, output_size, n_layers, rnn_type, dropout=0):
+# Decoder based RNN using Luong Attention
+class LuongAttnDecoderRNN(nn.Module):
+    def __init__(self, input_size, hidden_size, output_size, n_layers=1, dropout=0.1):
         super().__init__()
-        assert (rnn_type == nn.RNN or rnn_type == nn.LSTM or rnn_type == nn.GRU), "rnn_type must be a valid RNN type (torch.RNN, torch.LSTM, or torch.GRU)"
 
-        self.input = nn.Linear(input_size, hidden_size) if input_size != hidden_size else None
-        self.rnn = rnn_type(hidden_size, hidden_size, num_layers=n_layers, dropout=0 if n_layers==1 else dropout)
-        self.out = nn.Linear(hidden_size, output_size) if hidden_size != output_size else None
+        # Keep for reference
+        self.hidden_size = hidden_size
+        self.output_size = output_size
+        self.n_layers = n_layers
+        self.dropout = dropout
 
-    def forward(self, x, hidden):
-        #X: (1, batch_size, embedding_size)
-        # Scale up input to hidden size
-        if self.input is not None: x = self.input(x)
-        #Pass through GRU
-        outputs, hidden = self.rnn(x, hidden)
-        # Scale to output size
-        if self.out is not None: outputs = self.out(outputs)
-        return(outputs, hidden)
+        # Define layers
+        self.gru = nn.GRU(input_size, hidden_size, n_layers, dropout=(0 if n_layers == 1 else dropout))
+        self.concat = nn.Linear(hidden_size * 2, hidden_size)
+        self.out = nn.Linear(hidden_size, output_size)
 
-class RawRNNSeq2Seq(nn.Module):
-    def __init__(self, input_size, hidden_size, output_size, encoder_layers, decoder_layers, output_vocab, input_vocab=None, encoder_rnn_type=nn.GRU, decoder_rnn_type=nn.GRU, use_attention=False, teacher_forcing_ratio=1, dropout=0., device=torch.device("cuda" if torch.cuda.is_available() else "cpu")):
+        self.attn = ContentAttention(hidden_size, hidden_size)
+
+    def forward(self, input_step, last_hidden, encoder_outputs):
+        # Note: we run this one step (word) at a time
+        # Forward through unidirectional GRU
+        rnn_output, hidden = self.gru(input_step, last_hidden)
+        # Calculate context vector from the current GRU output
+        context = self.attn(rnn_output.squeeze(0), encoder_outputs.transpose(0, 1), return_weighted_sum=True)
+        # Concatenate weighted context vector and GRU output using Luong eq. 5
+        concat_input = torch.cat((rnn_output.squeeze(0), context), 1)
+        concat_output = torch.tanh(self.concat(concat_input))
+        # Predict next word
+        output = F.softmax(self.out(concat_output), dim=1)
+
+        return output, hidden
+
+class Seq2SeqRNN(nn.Module):
+    def __init__(self, input_size, hidden_size, output_vocab, encoder_layers, decoder_layers, input_vocab=None, dropout=0., teacher_forcing_ratio=1., max_length=200):
         super().__init__()
         self.hyperparameters = locals()
-        self.input_vocab = input_vocab
-        self.output_vocab = output_vocab
-        # Embeddings
-        if input_vocab is not None: self.input_embedding = nn.Embedding(input_vocab.num_words, input_size)
-        self.output_embedding = nn.Embedding(output_vocab.num_words, output_size)
-        # Main RNNs
-        self.encoder = RNNEncoder(input_size=input_size, hidden_size=hidden_size, n_layers=encoder_layers, rnn_type=encoder_rnn_type, dropout=dropout)
-        self.decoder = RNNDecoder(output_size + (hidden_size * 2) if use_attention else output_size, hidden_size=hidden_size * 2, output_size=output_size, n_layers=decoder_layers, rnn_type=decoder_rnn_type, dropout=dropout)
-        # Other modules
-        self.hidden_bridges = nn.ModuleList([nn.Linear(hidden_size * 2, hidden_size * 2) for i in range(decoder_layers)])
-        if use_attention: self.attention = ContentAttention(hidden_size * 2, hidden_size * 2)
-        self.classifier = nn.Sequential(nn.ReLU(), nn.Linear(output_size, output_vocab.num_words))
-        # Other variables
-        self.use_attention = use_attention
-        self.encoder_layers, self.decoder_layers, self.hidden_size = encoder_layers, decoder_layers, hidden_size
-        self.device = device
+        self.output_embedding = nn.Embedding(output_vocab.num_words, hidden_size)
+        if input_vocab is not None: self.input_embedding = nn.Embedding(input_vocab.num_words, hidden_size) if input_vocab != output_vocab else self.output_embedding # If input and output vocabs are the same, reuse embeddings
+        self.encoder = EncoderRNN(input_size=hidden_size, hidden_size=hidden_size, n_layers=encoder_layers, rnn_type=nn.GRU, dropout=dropout)
+        self.decoder = LuongAttnDecoderRNN(hidden_size, hidden_size * 2, output_vocab.num_words, decoder_layers, dropout)
+        self.input_vocab, self.output_vocab = input_vocab, output_vocab
+        self.max_length = max_length
         self.teacher_forcing_ratio = teacher_forcing_ratio
+        self.convert_input = nn.Linear(input_size, hidden_size) if input_size != hidden_size else None
+    
+    def forward(self, input_seq, target_seq=None):
+        # Ensure there is no SOS_token at the start of the input seq or target seq
+        if self.input_vocab is not None and input_seq[0, 0].item() == self.input_vocab.SOS_token: input_seq = input_seq[1:]
+        if target_seq is not None and target_seq[0, 0].item() == self.output_vocab.SOS_token: target_seq = target_seq[1:]
+        # Warn if there is no EOS token at the end of the target
+        if target_seq is not None and not (target_seq[-1] == self.output_vocab.EOS_token).any(): print("Warning: There is no EOS token at the end of the target passed to the model!")
 
-    def forward(self, input_seq, decoding_steps=None, target=None):
-        if target is not None: decoding_steps = target.shape[0] + 1 # +1 to allow for EOS token to be outputted, which is not included in the target here
-        assert decoding_steps is not None or not self.training, "In training mode, decoding steps must be provided"
-        batch_size = input_seq.shape[1]
-
-        # Run through input embedding
+        input_lengths = torch.LongTensor([len(input_seq[:, i][(input_seq[:, i] != self.input_vocab.PAD_token)]) for i in range(input_seq.shape[1])]).to(device) if self.input_vocab is not None else torch.LongTensor([len(input_seq) for i in range(input_seq.shape[1])]).to(device)
         if self.input_vocab is not None: input_seq = self.input_embedding(input_seq)
-        # Run through encoder
-        encoder_output, encoder_hidden = self.encoder(input_seq)
+        if self.convert_input is not None: input_seq = self.convert_input(input_seq)
+        encoder_outputs, encoder_hidden = self.encoder(input_seq, input_lengths)
+        # Create initial decoder input (start with SOS tokens for each sentence)
+        decoder_input = torch.LongTensor([[self.output_vocab.SOS_token for _ in range(input_seq.shape[1])]])
+        decoder_input = decoder_input.to(device)
 
-        # Transfer hidden states
-        decoder_hidden = torch.zeros(self.decoder_layers, batch_size, self.hidden_size * 2).to(self.device)
-        for i in range(self.decoder_layers):
-            decoder_hidden[i] = self.hidden_bridges[i](encoder_hidden)
+        # Set initial decoder hidden state to the encoder's final hidden state
+        decoder_hidden = encoder_hidden[:self.decoder.n_layers]
 
-        # Loop through decoding loop
-        decoder_input = self.output_embedding(torch.full((1, batch_size), fill_value=self.output_vocab.SOS_token, dtype=torch.long).to(self.device)) if self.output_vocab is not None else self.start_vector.repeat(1,input_seq.shape[1],1)
-        final_output = torch.zeros((decoding_steps, batch_size, self.output_vocab.num_words) if decoding_steps is not None else (200, batch_size, self.output_vocab.num_words), dtype=torch.float).to(self.device)
-        for decoding_step in range(decoding_steps if decoding_steps is not None else 200): # Picked 200 as an arbitrary max seq len
-            # Get context vector
-            if self.use_attention: context_vector = self.attention(decoder_hidden[-1], encoder_output.transpose(0,1), return_weighted_sum=True)
-            # Run through decoder
-            decoder_output, decoder_hidden = self.decoder(torch.cat((decoder_input, context_vector.unsqueeze(0)), dim=-1) if self.use_attention else decoder_input, decoder_hidden)
-            # Add to final output
-            final_output[decoding_step] = self.classifier(decoder_output)
+        # Forward batch of sequences through decoder one time step at a time
+        final_outputs = torch.empty((target_seq.shape[0], target_seq.shape[1], self.output_vocab.num_words), device=device) if target_seq is not None else torch.empty((self.max_length, input_seq.shape[1], self.output_vocab.num_words), device=device)
+        for t in range(target_seq.shape[0] if target_seq is not None else self.max_length):
+            decoder_output, decoder_hidden = self.decoder(self.output_embedding(decoder_input), decoder_hidden, encoder_outputs)
+            final_outputs[t] = decoder_output
+            # Teacher forcing / Autoregressive
+            decoder_input = target_seq[t].view(1, -1) if random.random() < self.teacher_forcing_ratio and target_seq is not None else torch.argmax(decoder_output, dim=-1).view(1, -1)
+            if target_seq is None and torch.argmax(decoder_output, dim=-1)[0].item() == self.output_vocab.EOS_token: return final_outputs[:t+1]
 
-            # Get next input
-            if target is not None and random.random() < self.teacher_forcing_ratio and decoding_step < len(target):
-                decoder_input = self.output_embedding(target[decoding_step].unsqueeze(0))
-            else:
-                decoder_input = self.output_embedding(torch.argmax(final_output[decoding_step].unsqueeze(0), dim=-1))
-                
-            if decoding_steps is None: # Stop when an EOS token is outputted
-                if torch.argmax(final_output[decoding_step][0], dim=-1) == self.output_vocab.EOS_token:
-                    return final_output[:decoding_step]
-        return final_output
+        return final_outputs

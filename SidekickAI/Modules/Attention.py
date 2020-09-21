@@ -124,3 +124,22 @@ class MultiHeadAttention(nn.Module):
         #x = [batch size, query len, hid dim]
         
         return x, attention
+        
+# Luong attention layer
+class LuongAttn(nn.Module):
+    def __init__(self, hidden_size):
+        super(Attn, self).__init__()
+        self.hidden_size = hidden_size
+
+    def dot_score(self, hidden, encoder_output):
+        return torch.sum(hidden * encoder_output, dim=2)
+
+    def forward(self, hidden, encoder_outputs):
+        # Get attention scores
+        attn_energies = self.dot_score(hidden, encoder_outputs)
+
+        # Transpose max_length and batch_size dimensions
+        attn_energies = attn_energies.t()
+
+        # Return the softmax normalized probability scores (with added dimension)
+        return F.softmax(attn_energies, dim=1).unsqueeze(1)

@@ -37,7 +37,6 @@ def tokenize_spacy(sentence, full_token_data=False, spacy_model=None):
 
 
 def tokenize_wordpiece(sentence, special_tokens=False, full_token_data=False, lowercase=True):
-    #sentence = copy.deepcopy(sentence)
     '''General WordPiece tokenization function.\n
     Inputs:
         sentence: any possibly jagged collection of strings / tuples of strings (for BERT seperation)
@@ -62,6 +61,7 @@ def tokenize_wordpiece(sentence, special_tokens=False, full_token_data=False, lo
     
     # Traverse list, return linearized list of strings/pairs and insert index numbers into the main list
     main_list, linear_list = extract_bottom_items(main_list=sentence, base_types=[str, tuple])
+    del sentence
     # Check if we should add special tokens
     special_tokens = special_tokens or any([isinstance(x, tuple) for x in linear_list])
 
@@ -117,6 +117,30 @@ def tokenize_alphabet(sentence, lowercase=True):
 
     # Add the linear list items back to the main list
     main_list = insert_bottom_items(main_list=main_list, linear_list=linear_list)
+    return main_list
+
+def tokenize_custom(sentence, tokenization_function, lowercase=True):
+    sentence = copy.deepcopy(sentence)
+    '''Custom tokenization function. Allows for custom functions to take in a string and output a list of tokens\n
+    Inputs:
+        sentence: any possibly jagged collection of strings
+        tokenization_function (function): Tokenization function that takes in a string and outputs a list of tokens
+        lowercase: [default: true] lowercase everything
+    Outputs:
+        sentence: the same possibly jagged collection of inputs, now tokenized'''
+    if isinstance(sentence, str): # Tokenize string right away
+        return tokenization_function(sentence)
+    
+    # Traverse list, return linearized list of strings/pairs and insert index numbers into the main list
+    main_list, linear_list = extract_bottom_items(main_list=sentence, base_types=[str])
+
+    # Tokenize the linear list
+    for i in range(len(linear_list)):
+        linear_list[i] = tokenization_function(linear_list[i].lower()) if lowercase else tokenization_function(linear_list[i])
+
+    # Add the linear list items back to the main list
+    main_list = insert_bottom_items(main_list=main_list, linear_list=linear_list)
+
     return main_list
 
 # RECURSIVE TREE FUNCTIONS

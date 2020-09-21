@@ -48,10 +48,10 @@ class Dataset:
         self.data_chunk_size = min(min(max(int((self.end_index - self.start_index) / 5), 2000), 20000), self.end_index - self.start_index) if data_chunk_size is None else data_chunk_size # 2000: min, 20000: max | These are arbitrary
 
     def __len__(self):
-        return len(self.data[list(self.data.keys())[0]]) if not self.preload else len(self.batch_queue)
+        return len(self.data[list(self.data.keys())[0]]) // self.batch_size if not self.preload else len(self.batch_queue)
 
-    def batch_len(self):
-        return int(self.__len__() // self.batch_size) if not self.preload else self.__len__()
+    def example_len(self):
+        return int(self.__len__() * self.batch_size)
 
     def __iter__(self):
         self.iterations = 0
@@ -59,7 +59,7 @@ class Dataset:
 
     def __next__(self):
         self.iterations += 1
-        if self.iterations >= self.batch_len(): # Stop iterating
+        if self.iterations >= self.__len__(): # Stop iterating
             self.stop_iteration()
 
         while self.batch_queue.empty():

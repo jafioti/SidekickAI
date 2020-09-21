@@ -67,10 +67,6 @@ class Vocab:
             if v >= min_count:
                 keep_words.append(k)
 
-        print('keep_words {} / {} = {:.4f}'.format(
-            len(keep_words), len(self.word2index), len(keep_words) / len(self.word2index)
-        ))
-
         # Reinitialize dictionaries
         self.word2index = {}
         self.word2count = {}

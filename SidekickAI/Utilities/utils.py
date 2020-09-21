@@ -1,7 +1,8 @@
 # A bunch of  random useful functions with no good place in the library
 
 def load_model(path, model_class):
-    '''Loads a model from the model class, and the checkpoint file, which inclues the state dict and the hyperparameters'''
+    '''Loads a model from the model class, and the checkpoint file, which inclues the state dict and the hyperparameters\n
+    Will also load an optimizer if there is one contained in the save file.'''
     import os
     from torch import load
     assert os.path.isfile(path), "The checkpoint file does not exist at the selected path"
@@ -10,16 +11,20 @@ def load_model(path, model_class):
     assert "hyperparameters" in list(checkpoint.keys()), "The checkpoint does not contain hyperparameters"
     model = model_class(**filter_args_dict_to_function(checkpoint["hyperparameters"], model_class))
     model.load_state_dict(checkpoint["state_dict"])
-    return model
+    return (model, checkpoint["optimizer"]) if "optimizer" in list(checkpoint.keys()) else model
 
-def save_model(path, model):
+def save_model(path, model, optimizer=None):
     from torch import save
     '''Saves a model to a file containing the state dict and the hyperparameters.\n
     Any model to be saved must have this line of code at the top of it's __init__ function:
-        self.hyperparameters = locals()'''
+        self.hyperparameters = locals()
+    Optionally pass in an optimizer to be saved'''
     assert hasattr(model, "state_dict"), "The model does not have a state dict"
     assert hasattr(model, "hyperparameters"), "The model does not have a 'hyperparameters' variable"
-    save({"state_dict":model.state_dict(), "hyperparameters":model.hyperparameters}, path)
+    if optimizer is not None:
+        save({"state_dict":model.state_dict(), "hyperparameters":model.hyperparameters, "optimizer":optimizer}, path)
+    else:
+        save({"state_dict":model.state_dict(), "hyperparameters":model.hyperparameters}, path)
 
 def count_parameters(model, trainable_only=True, format_as_string=True):
     '''Counts the parameters in a model'''
