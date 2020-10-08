@@ -1,17 +1,24 @@
 # A bunch of  random useful functions with no good place in the library
 
-def load_model(path, model_class):
+def load_model(path, model_class, optimizer_class=None):
     '''Loads a model from the model class, and the checkpoint file, which inclues the state dict and the hyperparameters\n
-    Will also load an optimizer if there is one contained in the save file.'''
+    Will also load an optimizer if there is one contained in the save file and an optimizer class is passed in.'''
     import os
     from torch import load
     assert os.path.isfile(path), "The checkpoint file does not exist at the selected path"
     checkpoint = load(path)
     assert "state_dict" in list(checkpoint.keys()), "The checkpoint does not contain a state_dict"
     assert "hyperparameters" in list(checkpoint.keys()), "The checkpoint does not contain hyperparameters"
+    # Model
     model = model_class(**filter_args_dict_to_function(checkpoint["hyperparameters"], model_class))
     model.load_state_dict(checkpoint["state_dict"])
-    return (model, checkpoint["optimizer"]) if "optimizer" in list(checkpoint.keys()) else model
+    # Optimizer
+    if optimizer_class is not None:
+        assert "optimizer_hyperparameters" in list(checkpoint.keys()), "An optimizer save does not exist!"
+        optimizer = optimizer_class(model.parameters(), **checkpoint["optimizer_hyperparameters"])
+        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        return model, optimizer
+    return model
 
 def save_model(path, model, optimizer=None):
     from torch import save
@@ -22,9 +29,18 @@ def save_model(path, model, optimizer=None):
     assert hasattr(model, "state_dict"), "The model does not have a state dict"
     assert hasattr(model, "hyperparameters"), "The model does not have a 'hyperparameters' variable"
     if optimizer is not None:
-        save({"state_dict":model.state_dict(), "hyperparameters":model.hyperparameters, "optimizer":optimizer}, path)
+        save({"state_dict":model.state_dict(), "hyperparameters":model.hyperparameters, "optimizer_state_dict":optimizer.state_dict(), "optimizer_hyperparameters":optimizer.defaults}, path)
     else:
         save({"state_dict":model.state_dict(), "hyperparameters":model.hyperparameters}, path)
+
+def optimizer_to_cuda(optimizer, custom_device=None):
+    '''Transfer optimizer to cuda device or custom device'''
+    from torch import Tensor
+    for state in optimizer.state.values():
+        for k, v in state.items():
+            if isinstance(v, Tensor):
+                state[k] = v.to(custom_device) if custom_device is not None else v.cuda()
+    return optimizer
 
 def count_parameters(model, trainable_only=True, format_as_string=True):
     '''Counts the parameters in a model'''

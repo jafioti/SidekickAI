@@ -69,44 +69,43 @@ class EncoderRNN(nn.Module):
 
         return outputs, hidden
 
-class PyramidRNNEncoder(nn.Module): # MAY NEED TO FIX SHAPES
+class PyramidEncoderRNN(nn.Module): # MAY NEED TO FIX SHAPES
     def __init__(self, input_size, n_layers, rnn_type, dropout=0.):
         super().__init__()
         assert (rnn_type == nn.RNN or rnn_type == nn.LSTM or rnn_type == nn.GRU), "rnn_type must be a valid RNN type (torch.RNN, torch.LSTM, or torch.GRU)"
         self.n_layers = n_layers
         self.dropout = dropout
         self.rnn_type = rnn_type
-        self.final_hidden_size = int(input_size * math.pow(2., n_layers + 1))
+        self.pad_vector = torch.nn.Parameter(torch.randn((1, 1, input_size), requires_grad=True))
 
         self.rnns = nn.ModuleList([BiRNNModule(input_size=int(input_size * math.pow(2., float(i))), hidden_size=int(input_size * math.pow(2., float(i))), n_layers=1, rnn_type=rnn_type) for i in range(1, n_layers + 1)])
 
-    def forward(self, inputs, lengths=None, hidden=None):
+    def forward(self, input_seq, lengths=None, hidden=None):
         # inputs: (seq_len, batch_size, embed_dim)
-        # Shave off end to ensure it will fit
-        inputs = inputs[:- int(inputs.shape[0] % math.pow(2, self.n_layers))]
-        seq_len, batch_size, features = inputs.shape
-        #assert seq_len % math.pow(2, self.n_layers) == 0, "Sequence Length must be divisible by " + str(int(math.pow(2, self.n_layers))) + " to work with the Pyramid RNN Encoder"
+        seq_len, batch_size, features = input_seq.shape
         
         # Pack if lengths are provided
-        if lengths is not None: inputs = nn.utils.rnn.pack_padded_sequence(inputs, lengths, enforce_sorted=False)
+        if lengths is not None: input_seq = nn.utils.rnn.pack_padded_sequence(input_seq, lengths, enforce_sorted=False)
+
+        # Pad to ensure input_seq.shape[0] is divisible by 2^(n_layers - 1)
+        if input_seq.shape[0] % math.pow(2, self.n_layers) != 0: input_seq = torch.cat((input_seq, self.pad_vector.repeat(int(math.pow(2, self.n_layers) - (input_seq.shape[0] % math.pow(2, self.n_layers))), batch_size, 1)), dim=0)
 
         # Feed through rnn layers
         for i in range(len(self.rnns)):
             # Concat neighbors
-            inputs = inputs.contiguous().view(2, int(inputs.shape[1] / 2), batch_size, int(inputs.shape[-1] * 2)) if i > 0 else inputs.contiguous().view(int(inputs.shape[0] / 2), batch_size, int(inputs.shape[-1] * 2))
+            input_seq = input_seq.contiguous().view(2, int(input_seq.shape[1] / 2), batch_size, int(input_seq.shape[-1] * 2)) if i > 0 else input_seq.contiguous().view(int(input_seq.shape[0] / 2), batch_size, int(input_seq.shape[-1] * 2))
             # Feed through layer
-            inputs, hidden = self.rnns[i](inputs)
+            input_seq, hidden = self.rnns[i](input_seq)
             # Dropout
-            if i != self.n_layers - 1: F.dropout(inputs, self.dropout)
+            if i != self.n_layers - 1: F.dropout(input_seq, self.dropout)
 
         # Concat final hiddens
-        hidden = hidden.view(1, 2, batch_size, self.final_hidden_size)
+        hidden = hidden.transpose(0, 1)
         hidden = torch.cat((hidden[:, 0], hidden[:, 1]), dim=-1)[-1]
         # Concat final outputs
-        inputs = inputs.view(inputs.shape[0], batch_size, 2, self.final_hidden_size)
-        inputs = torch.cat((inputs[:, :, 0], inputs[:, :, 1]), dim=-1)
+        input_seq = input_seq.view(input_seq.shape[1], batch_size, input_seq.shape[-1] * 2)
 
-        return inputs, hidden
+        return input_seq, hidden
 
 # Decoder based RNN using Luong Attention
 class LuongAttnDecoderRNN(nn.Module):
