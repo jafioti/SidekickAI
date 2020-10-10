@@ -53,7 +53,7 @@ class Dataset:
         return int(self.__len__() * self.batch_size)
 
     def __iter__(self):
-        self.iterations = 0
+        self.reset()
         return iter(self.batch_queue) if self.preload else self
 
     def __next__(self):
@@ -84,6 +84,12 @@ class Dataset:
         self.waits = 0
         self.batch_queue = multiprocessing.JoinableQueue()
         raise StopIteration
+
+    def reset(self):
+        self.loaded_index = self.start_index
+        self.iterations = 0
+        self.waits = 0
+        self.batch_queue = multiprocessing.JoinableQueue()
 
     def shuffle(self):
         # Shuffle data

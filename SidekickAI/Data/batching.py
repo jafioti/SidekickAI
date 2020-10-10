@@ -111,7 +111,7 @@ def shuffle_lists_retain_batches(batch_size, *args):
         # Batch
         args = list(args)
         for i in range(len(args)):
-            args[i] = [args[i][x:x + batch_size] for x in range(0, len(args[i]) - batch_size, batch_size)]
+            args[i] = [args[i][x:x + batch_size] for x in range(0, len(args[i]), batch_size)]
         # Shuffle them
         args = list(shuffle_lists(*args))
         # Unbatch
