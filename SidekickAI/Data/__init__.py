@@ -27,6 +27,7 @@ class Dataset:
         self.start_index, self.end_index = start_index, end_index
         self.load_function = load_function
         self.collate_function = collate_function
+        self.workers = []
         self.data, self.other = {}, {}
         
         if init_function is not None: init_function(self, start_index, end_index)
@@ -38,8 +39,6 @@ class Dataset:
         if preload:
             # Call the loading function and join all of the created processes before returning fron the __init__ function
             self.load_data(self.start_index, self.end_index)
-            # Join the processes
-            for process in multiprocessing.active_children(): process.join()
 
         self.loaded_index = start_index
         self.waits = 0
@@ -54,7 +53,7 @@ class Dataset:
         return int(self.__len__() * self.batch_size)
 
     def __iter__(self):
-        self.iterations = 0
+        self.reset()
         return iter(self.batch_queue) if self.preload else self
 
     def __next__(self):
@@ -66,9 +65,10 @@ class Dataset:
             self.waits += 1
             time.sleep(1)
             if self.waits > 2:
-                for job in multiprocessing.active_children(): job.terminate()
+                for job in self.workers: job.terminate()
+                self.workers = []
                 self.waits = 0
-            if len(multiprocessing.active_children()) < self.num_workers or self.num_workers == 0:
+            if len(self.workers) < self.num_workers or self.num_workers == 0:
                 if self.loaded_index >= self.end_index - self.batch_size: self.stop_iteration()
                 self.load_data(self.loaded_index, min(self.loaded_index + self.data_chunk_size, self.end_index - 1))
                 self.loaded_index = min(self.loaded_index + self.data_chunk_size, self.end_index)
@@ -84,6 +84,12 @@ class Dataset:
         self.waits = 0
         self.batch_queue = multiprocessing.JoinableQueue()
         raise StopIteration
+
+    def reset(self):
+        self.loaded_index = self.start_index
+        self.iterations = 0
+        self.waits = 0
+        self.batch_queue = multiprocessing.JoinableQueue()
 
     def shuffle(self):
         # Shuffle data
@@ -101,9 +107,11 @@ class Dataset:
         else:
             # Divide the data into num_workers slices to feed into each worker
             slice_size = (end_index - start_index) // self.num_workers
+            self.workers = []
             for i in range(self.num_workers):
                 job = multiprocessing.Process(target=load_job, args=({key:value[start_index + (slice_size * i) - self.start_index:start_index + (slice_size * (i + 1)) - self.start_index] for (key, value) in self.data.items()}, self.other, start_index + (slice_size * i), start_index + (slice_size * (i + 1)), self.batch_size, self.load_function, self.collate_function, self.batch_queue))
                 job.start()
+                self.workers.append(job)
 
 def load_job(data, other, start_index, end_index, batch_size, load_function, collate_function, batch_queue): # The job to be run in each worker
     end_index = start_index + len(data[list(data.keys())[0]])

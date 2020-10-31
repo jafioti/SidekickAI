@@ -50,26 +50,14 @@ def batch_to_train_data(indexes_batch, PAD_token, return_lengths=False, return_p
         return_list.append(BoolTensor(pad_mask(padList, pad_value=PAD_token)))
     return tuple(return_list) if len(return_list) > 1 else return_list[0]
 
-def filter_by_length(*lists, max_length=None, min_length=None, length_function=lambda x: len(x)):
-    '''Filters list or lists by a max length and returns the onces under the max'''
+def filter_by_length(*lists, max_length=None, min_length=None, length_function=lambda item: len(item), use_specific_list=None):
+    '''Filters list or lists by a max length and returns the ones under the max'''
     assert max_length is not None or min_length is not None, "Either max_length or min_length must be specified"
-    lists = [*lists]
-    if isinstance(lists[0], list):
-        new_lists = [[] for i in range(len(lists))]
-        # List of lists
-        for i in range(len(lists[0])):
-            doesnt_fit = False
-            for x in range(len(lists)):
-                if (max_length is not None and length_function(lists[x][i]) > max_length) or (min_length is not None and length_function(lists[x][i]) < min_length):
-                    doesnt_fit = True
-                    break
-            if not doesnt_fit:
-                for x in range(len(lists)):
-                    new_lists[x].append(lists[x][i])
-        return(tuple(new_lists))
-    else:
-        # Single list
-        return([lists[i] for i in range(len(lists)) if length_function(lists[i]) <= max_length])
+    min_length = 0 if min_length is None else min_length
+    max_length = float("inf") if max_length is None else max_length
+    lists = list(zip(*lists))
+    lists = [lists[i] for i in range(len(lists)) if (all([min_length < length_function(lists[i][x]) < max_length for x in range(len(lists[i]))]) if use_specific_list is None else min_length < length_function(lists[i][use_specific_list]) < max_length)]
+    return [list(x) for x in zip(*lists)]
 
 # Shuffles multiple lists of the same length in the same ways
 def shuffle_lists(*lists):
@@ -123,7 +111,7 @@ def shuffle_lists_retain_batches(batch_size, *args):
         # Batch
         args = list(args)
         for i in range(len(args)):
-            args[i] = [args[i][x:x + batch_size] for x in range(0, len(args[i]) - batch_size, batch_size)]
+            args[i] = [args[i][x:x + batch_size] for x in range(0, len(args[i]), batch_size)]
         # Shuffle them
         args = list(shuffle_lists(*args))
         # Unbatch
