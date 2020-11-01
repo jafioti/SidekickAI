@@ -7,7 +7,7 @@ class Dataset:
     Handles multithreaded data loading, batching, preparing, etc... \n
     Inputs:
         batch_size (int): The size of batches to feed out
-        load_function (function) Parameters: (data (a dict with only the current index of data in it), other (a dict with other random things in it) global_index (the index to be loaded, global based on the start/end indexes passed into the dataset)): The function responsible for directly loading examples.  
+        load_function (function) Parameters: (data (a dict with only the current index of data in it), other (a dict with other random things in it), global_index (the index to be loaded, global based on the start/end indexes passed into the dataset)): The function responsible for directly loading examples.  
             This function should load a single example if the collate_function is defined, or a batch of examples if not. 
             What gets returned will either be fed directly to the collate function, or directly out of the iterator.
         end_index (int): The index to stop loading the dataset. This index will be the highest one passed into the load_function. This will also be fed into the init_function.
@@ -89,7 +89,7 @@ class Dataset:
         self.loaded_index = self.start_index
         self.iterations = 0
         self.waits = 0
-        self.batch_queue = multiprocessing.JoinableQueue()
+        if not self.preload: self.batch_queue = multiprocessing.JoinableQueue()
 
     def shuffle(self):
         # Shuffle data

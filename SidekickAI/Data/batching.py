@@ -72,7 +72,7 @@ def shuffle_lists(*lists):
     '''
     zipped_lists = list(zip(*lists)) if len(lists) > 1 else lists[0]
     random.shuffle(zipped_lists)
-    return zip(*zipped_lists) if len(lists) > 1 else [zipped_lists]
+    return [list(f) for f in zip(*zipped_lists)] if len(lists) > 1 else [zipped_lists]
 
 def normalize_string(s):
     '''Lowercase, trim, and remove non-letter characters'''
