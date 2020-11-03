@@ -7,12 +7,12 @@ class Dataset:
     Handles multithreaded data loading, batching, preparing, etc... \n
     Inputs:
         batch_size (int): The size of batches to feed out
-        load_function (function) Parameters: (data (a dict with only the current index of data in it), other (a dict with other random things in it) global_index (the index to be loaded, global based on the start/end indexes passed into the dataset)): The function responsible for directly loading examples.  
+        load_function (function) Parameters: (data (a dict with only the current index of data in it), other (a dict with other random things in it), global_index (the index to be loaded, global based on the start/end indexes passed into the dataset)): The function responsible for directly loading examples.  
             This function should load a single example if the collate_function is defined, or a batch of examples if not. 
             What gets returned will either be fed directly to the collate function, or directly out of the iterator.
         end_index (int): The index to stop loading the dataset. This index will be the highest one passed into the load_function. This will also be fed into the init_function.
         init_function (function) Parameters: (loader (the loader class), start_index (passed into the dataset), end_index (passed into the dataset)) [Default: None]: The function for handling initialization. Should store all nessacary variables in the data dict and the other dict.
-        collate_function (function) Parameters: (other (dict containing non data stuff), batch (the list of batch_size outputs from the load_function)) [Default: None]: The function responsible for combining batch_size examples into a batch. Any additional preprocessing should be put in here. 
+        collate_function (function) Parameters: (batch (the list of batch_size outputs from the load_function), other (dict containing non data stuff)) [Default: None]: The function responsible for combining batch_size examples into a batch. Any additional preprocessing should be put in here. 
             If this function is not specified, the output of one call of the load_function will be assumed to be a full batch and be returned from the iterator.
         start_index (int) [Default: 0]: The index to start loading the dataset from. This index will be the lowest one passed into the load_function. This will also be fed into the init_function.
         preload (bool) [Default: False]: Whether or not to load all the data on initialization or not.
