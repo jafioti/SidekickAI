@@ -20,6 +20,16 @@ def load_model(path, model_class, optimizer_class=None):
         return model, optimizer
     return model
 
+def freeze_model(model):
+    '''Freezes all weights in a model'''
+    for param in model.parameters():
+        param.requires_grad = False
+
+def unfreeze_model(model):
+    '''Unfreezes all weights in a model'''
+    for param in model.parameters():
+        param.requires_grad = True
+
 def save_model(path, model, optimizer=None):
     from torch import save
     '''Saves a model to a file containing the state dict and the hyperparameters.\n

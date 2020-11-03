@@ -1,6 +1,6 @@
 import torch
 
-def mask_nll_loss(output, target, mask, device):        
+def mask_nll_loss(output, target, mask, device):
     if len(output.shape) == 2: # Ensure there is a sequence length dimension
         output.unsqueeze_(0)
         target.unsqueeze_(0)
