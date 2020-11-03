@@ -16,7 +16,7 @@ def pad_mask(input_batch, pad_value):
                 m[i].append(1)
     return m
 
-def pad_batch(batch, pad_value):
+def pad_batch(batch: list, pad_value: str) -> list:
     '''Pads all inputs to longest input'''
     return list(itertools.zip_longest(*batch, fillvalue=pad_value))
 
@@ -24,7 +24,7 @@ def pad_batch(batch, pad_value):
 #def batch(dataset):
 
 # Returns padded sequence tensor, lengths, and pad mask
-def batch_to_train_data(indexes_batch, PAD_token, return_lengths=False, return_pad_mask=False):
+def batch_to_train_data(indexes_batch: list, PAD_token: str, return_lengths:bool =False, return_pad_mask:bool =False):
     '''
     Returns training data for a given batch.
         Inputs:
@@ -74,7 +74,7 @@ def shuffle_lists(*lists):
     random.shuffle(zipped_lists)
     return [list(f) for f in zip(*zipped_lists)] if len(lists) > 1 else [zipped_lists]
 
-def normalize_string(s):
+def normalize_string(s: str) -> str:
     '''Lowercase, trim, and remove non-letter characters'''
     # Turn a Unicode string to plain ASCII, thanks to
     # https://stackoverflow.com/a/518232/2809427
@@ -106,7 +106,7 @@ def sort_lists_by_length(sorting_list, *other_lists, length_function=lambda x: l
     if longest_first: zipped_lists.reverse()
     return [list(lis) for lis in zip(*zipped_lists)] if is_other_lists else zipped_lists
 
-def shuffle_lists_retain_batches(batch_size, *args):
+def shuffle_lists_retain_batches(batch_size: int, *args):
         # Shuffle but retain the batches
         # Batch
         args = list(args)

@@ -1,13 +1,14 @@
-import math
+import math, random
 from typing import Callable, Optional
 from warnings import warn
 
 import torch
 from torch import Tensor
 import SidekickAI.Utilities.torchaudio.functional as F
-
+from SidekickAI.Utilities.torchaudio.sparse_image_warp import sparse_image_warp
 
 __all__ = [
+    'SpecAugment',
     'Spectrogram',
     'GriffinLim',
     'AmplitudeToDB',
@@ -27,6 +28,38 @@ __all__ = [
     'Vad',
 ]
 
+class SpecAugment(torch.nn.Module):
+    '''SpecAugment process as outlined here: https://arxiv.org/pdf/1904.08779.pdf'''
+    def __init__(self, time_warping, max_frequency_mask, max_time_mask):
+        super().__init__()
+        self.time_warping = time_warping
+        self.freq_mask = FrequencyMasking(max_frequency_mask)
+        self.time_mask = TimeMasking(max_time_mask)
+
+    def time_warp(self, spec):
+        num_rows = spec.shape[1]
+        spec_len = spec.shape[2]
+
+        y = num_rows // 2
+        horizontal_line_at_ctr = spec[0][y]
+        # assert len(horizontal_line_at_ctr) == spec_len
+
+        point_to_warp = horizontal_line_at_ctr[random.randrange(self.time_warping, spec_len-self.time_warping)]
+        # assert isinstance(point_to_warp, torch.Tensor)
+
+        # Uniform distribution from (0,W) with chance to be up to W negative
+        dist_to_warp = random.randrange(-self.time_warping, self.time_warping)
+        src_pts = torch.tensor([[[y, point_to_warp]]])
+        dest_pts = torch.tensor([[[y, point_to_warp + dist_to_warp]]])
+        warped_spectro, dense_flows = sparse_image_warp(spec, src_pts, dest_pts)
+        return warped_spectro.squeeze(3)
+
+    def forward(self, spectrogram):
+        '''Spectrogram: mel spectrogram'''
+        spectrogram = self.time_warp(spectrogram)
+        spectrogram = self.freq_mask(spectrogram)
+        spectrogram = self.time_mask(spectrogram)
+        return spectrogram
 
 class Spectrogram(torch.nn.Module):
     r"""Create a spectrogram from a audio signal.
