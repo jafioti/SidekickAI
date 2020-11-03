@@ -89,7 +89,7 @@ class Dataset:
         self.loaded_index = self.start_index
         self.iterations = 0
         self.waits = 0
-        self.batch_queue = multiprocessing.JoinableQueue()
+        if not self.preload: self.batch_queue = multiprocessing.JoinableQueue()
 
     def shuffle(self):
         # Shuffle data

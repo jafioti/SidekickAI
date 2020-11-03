@@ -56,7 +56,7 @@ def filter_by_length(*lists, max_length=None, min_length=None, length_function=l
     min_length = 0 if min_length is None else min_length
     max_length = float("inf") if max_length is None else max_length
     lists = list(zip(*lists))
-    lists = [lists[i] for i in range(len(lists)) if (all([min_length < length_function(lists[i][x]) < max_length for x in range(len(lists[i]))]) if use_specific_list is None else min_length < length_function(lists[i][use_specific_list]) < max_length)]
+    lists = [lists[i] for i in range(len(lists)) if (all([min_length <= length_function(lists[i][x]) <= max_length for x in range(len(lists[i]))]) if use_specific_list is None else min_length <= length_function(lists[i][use_specific_list]) <= max_length)]
     return [list(x) for x in zip(*lists)]
 
 # Shuffles multiple lists of the same length in the same ways
@@ -102,7 +102,8 @@ def sort_lists_by_length(sorting_list, *other_lists, length_function=lambda x: l
     '''
     is_other_lists = other_lists is not None and len(other_lists) > 0
     zipped_lists = list(zip(sorting_list, *other_lists)) if is_other_lists else sorting_list
-    zipped_lists.sort(key=lambda x: length_function(x))
+    if is_other_lists: zipped_lists.sort(key=lambda x: length_function(x[0]))
+    else: zipped_lists.sort(key=lambda x: length_function(x))
     if longest_first: zipped_lists.reverse()
     return [list(lis) for lis in zip(*zipped_lists)] if is_other_lists else zipped_lists
 

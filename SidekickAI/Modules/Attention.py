@@ -10,7 +10,7 @@ from enum import Enum
 import torch.nn.functional as F
 import csv, random, re, os, math
 
-from SidekickAI.Utilities.functional import weighted_avg
+from SidekickAI.Utilities.functional import weighted_avg, batch_dot
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -29,7 +29,7 @@ class ContentAttention(nn.Module):
         Returns:
             distribution = (sequence length, batch size) or average = (batch size, hidden size)'''
         if self.query_converter is not None: query = self.query_converter(query)
-        distribution = keys.bmm(query.unsqueeze(2)).squeeze(2)
+        distribution = batch_dot(x=query, y=keys)
         if key_mask is not None: distribution.data.masked_fill_(key_mask.data, -float('inf'))
         if return_weighted_sum:
             return weighted_avg(keys, F.softmax(distribution, dim=1))
@@ -128,7 +128,7 @@ class MultiHeadAttention(nn.Module):
 # Luong attention layer
 class LuongAttn(nn.Module):
     def __init__(self, hidden_size):
-        super(Attn, self).__init__()
+        super().__init__()
         self.hidden_size = hidden_size
 
     def dot_score(self, hidden, encoder_output):
