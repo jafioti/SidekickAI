@@ -64,7 +64,7 @@ def count_parameters(model, trainable_only=True, format_as_string=True):
         return "%.1f%s" % (params, 'Yi')
     return params
 
-def get_learning_rate(optimizer, round_digits=4):
+def get_learning_rate(optimizer, round_digits=6):
     '''Returns the average learning rate for an optimizer'''
     lrs = [group['lr'] for group in optimizer.param_groups]
     return round(sum(lrs) / len(lrs), round_digits)

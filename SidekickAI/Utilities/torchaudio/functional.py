@@ -3,6 +3,7 @@ from typing import Optional, Tuple
 import warnings
 
 import torch
+import torch.fft
 from torch import Tensor
 
 __all__ = [
@@ -96,16 +97,9 @@ def istft(
     Returns:
         Tensor: Least squares estimation of the original signal of size (..., signal_length)
     """
-    warnings.warn(
-        'istft has been moved to PyTorch and will be removed from torchaudio, '
-        'please use torch.istft instead.')
-    if pad_mode is not None:
-        warnings.warn(
-            'The parameter `pad_mode` was ignored in isftft, and is thus being deprecated. '
-            'Please set `pad_mode` to None to suppress this warning.')
     return torch.istft(
         input=stft_matrix, n_fft=n_fft, hop_length=hop_length, win_length=win_length, window=window,
-        center=center, normalized=normalized, onesided=onesided, length=length)
+        center=center, normalized=normalized, onesided=onesided, length=length, return_complex=False)
 
 
 def spectrogram(
@@ -147,7 +141,7 @@ def spectrogram(
 
     # default values are consistent with librosa.core.spectrum._spectrogram
     spec_f = torch.stft(
-        waveform, n_fft, hop_length, win_length, window, True, "reflect", False, True
+        input=waveform, n_fft=n_fft, hop_length=hop_length, win_length=win_length, window=window, center=True, pad_mode="reflect", normalized=False, onesided=True, return_complex=False
     )
 
     # unpack batch
@@ -2016,7 +2010,7 @@ def _measure(
     dftBuf[measure_len_ws:dft_len_ws].zero_()
 
     # lsx_safe_rdft((int)p->dft_len_ws, 1, c->dftBuf);
-    _dftBuf = torch.rfft(dftBuf, 1)
+    _dftBuf = torch.fft.rfft(dftBuf, 1)
 
     # memset(c->dftBuf, 0, p->spectrum_start * sizeof(*c->dftBuf));
     _dftBuf[:spectrum_start].zero_()
@@ -2049,7 +2043,7 @@ def _measure(
     _cepstrum_Buf[spectrum_end:dft_len_ws >> 1].zero_()
 
     # lsx_safe_rdft((int)p->dft_len_ws >> 1, 1, c->dftBuf);
-    _cepstrum_Buf = torch.rfft(_cepstrum_Buf, 1)
+    _cepstrum_Buf = torch.fft.rfft(_cepstrum_Buf, 1)
 
     result: float = float(torch.sum(
         complex_norm(

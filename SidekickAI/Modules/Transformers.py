@@ -16,10 +16,10 @@ from SidekickAI.Utilities.functional import weighted_avg, batch_dot
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 class Seq2SeqTransformer(nn.Module):
-    def __init__(self, embed_size, hidden_size, target_vocab, num_heads, num_encoder_layers, num_decoder_layers, forward_expansion, input_vocab=None, dropout=0.1, max_len=50, learned_pos_embeddings=False, device=torch.device("cuda" if torch.cuda.is_available() else "cpu")):
+    def __init__(self, input_size, hidden_size, target_vocab, num_heads, num_encoder_layers, num_decoder_layers, forward_expansion, input_vocab=None, dropout=0.1, max_len=50, learned_pos_embeddings=False, device=torch.device("cuda" if torch.cuda.is_available() else "cpu")):
         '''A Seq2Seq Transformer which embeds inputs and outputs distributions over the output vocab\n
         Init Inputs:
-            embed_size (int): The size of embeddings in the network
+            input_size (int): The size of embeddings in the network
             hidden_size (int): The size of hidden vectors in the network
             target_vocab (vocab): The target vocab
             num_heads (int): The number of heads in both the encoder and decoder
@@ -43,21 +43,21 @@ class Seq2SeqTransformer(nn.Module):
         self.input_vocab = input_vocab
         self.target_vocab = target_vocab
         self.max_len = max_len
-        self.embed_size = embed_size
-        if input_vocab is not None: self.src_embedding = nn.Embedding(input_vocab.num_words, embed_size)
-        self.src_positional_embedding = nn.Embedding(max_len, embed_size) if learned_pos_embeddings else self.generate_pos_embeddings
-        self.trg_embedding = nn.Embedding(target_vocab.num_words, embed_size)
-        self.trg_positional_embedding = nn.Embedding(max_len, embed_size) if learned_pos_embeddings else self.generate_pos_embeddings
+        self.input_size = input_size
+        if input_vocab is not None: self.src_embedding = nn.Embedding(input_vocab.num_words, input_size)
+        self.src_positional_embedding = nn.Embedding(max_len, input_size) if learned_pos_embeddings else self.generate_pos_embeddings
+        self.trg_embedding = nn.Embedding(target_vocab.num_words, input_size)
+        self.trg_positional_embedding = nn.Embedding(max_len, input_size) if learned_pos_embeddings else self.generate_pos_embeddings
         self.transformer = nn.Transformer(d_model=hidden_size, dim_feedforward=hidden_size * forward_expansion, nhead=num_heads, num_encoder_layers=num_encoder_layers, num_decoder_layers=num_decoder_layers, dropout=dropout)
         self.dropout = nn.Dropout(dropout)
         self.fc_out = nn.Linear(hidden_size, target_vocab.num_words)
-        self.convert_input = nn.Linear(embed_size, hidden_size) if embed_size != hidden_size else None
+        self.convert_input = nn.Linear(input_size, hidden_size) if input_size != hidden_size else None
 
     def generate_pos_embeddings(self, seq): # Generate statc positional embeddings of shape (seq len, batch size, embed size)
         '''seq: (seq len, 1) or (seq len)'''
-        pe = torch.zeros(seq.shape[0], self.embed_size, device=self.device)
+        pe = torch.zeros(seq.shape[0], self.input_size, device=self.device)
         position = torch.arange(0, seq.shape[0], dtype=torch.float, device=self.device).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, self.embed_size, 2).float().to(device) * (-math.log(10000.0) / self.embed_size))
+        div_term = torch.exp(torch.arange(0, self.input_size, 2).float().to(device) * (-math.log(10000.0) / self.input_size))
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
         pe = pe.unsqueeze(0).transpose(0, 1)
@@ -122,10 +122,10 @@ class Seq2SeqTransformer(nn.Module):
         return out
 
 class TransformerEncoder(nn.Module):
-    def __init__(self, embed_size, hidden_size, num_heads, num_layers, forward_expansion, input_vocab=None, dropout=0.1, max_len=50, learned_pos_embeddings=False, device=torch.device("cuda" if torch.cuda.is_available() else "cpu")):
+    def __init__(self, input_size, hidden_size, num_heads, num_layers, forward_expansion, input_vocab=None, dropout=0.1, max_len=50, learned_pos_embeddings=False, device=torch.device("cuda" if torch.cuda.is_available() else "cpu")):
         '''A Transformer emcoder which encodes inputs into encoded vectors\n
         Init Inputs:
-            embed_size (int): The size of embeddings in the network
+            input_size (int): The size of embeddings in the network
             hidden_size (int): The size of hidden vectors in the network
             num_heads (int): The number of heads in both the encoder and decoder
             num_layers (int): The number of layers in the transformer encoder
@@ -144,18 +144,18 @@ class TransformerEncoder(nn.Module):
         self.device = device
         self.input_vocab = input_vocab
         self.max_len = max_len
-        self.embed_size = embed_size
-        if input_vocab is not None: self.src_embedding = nn.Embedding(input_vocab.num_words, embed_size)
-        self.src_positional_embedding = nn.Embedding(max_len, embed_size) if learned_pos_embeddings else self.generate_pos_embeddings
+        self.input_size = input_size
+        if input_vocab is not None: self.src_embedding = nn.Embedding(input_vocab.num_words, input_size)
+        self.src_positional_embedding = nn.Embedding(max_len, input_size) if learned_pos_embeddings else self.generate_pos_embeddings
         self.transformer_encoder = nn.TransformerEncoder(nn.TransformerEncoderLayer(d_model=hidden_size, nhead=num_heads, dim_feedforward=hidden_size * forward_expansion, dropout=dropout), num_layers=num_layers)
         self.dropout = nn.Dropout(dropout)
-        self.convert_input = nn.Linear(embed_size, hidden_size) if embed_size != hidden_size else None
+        self.convert_input = nn.Linear(input_size, hidden_size) if input_size != hidden_size else None
 
     def generate_pos_embeddings(self, seq): # Generate statc positional embeddings of shape (seq len, batch size, embed size)
         '''seq: (seq len, 1) or (seq len)'''
-        pe = torch.zeros(seq.shape[0], self.embed_size, device=self.device)
+        pe = torch.zeros(seq.shape[0], self.input_size, device=self.device)
         position = torch.arange(0, seq.shape[0], dtype=torch.float, device=self.device).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, self.embed_size, 2).float().to(device) * (-math.log(10000.0) / self.embed_size))
+        div_term = torch.exp(torch.arange(0, self.input_size, 2).float().to(device) * (-math.log(10000.0) / self.input_size))
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
         pe = pe.unsqueeze(0).transpose(0, 1)
@@ -181,10 +181,10 @@ class TransformerEncoder(nn.Module):
         return out
 
 class TransformerAggregator(nn.Module):
-    def __init__(self, embed_size, hidden_size, output_size, num_heads, num_layers, forward_expansion, input_vocab=None, dropout=0.1, max_len=50, learned_pos_embeddings=False, device=torch.device("cuda" if torch.cuda.is_available() else "cpu")):
+    def __init__(self, input_size, hidden_size, output_size, num_heads, num_layers, forward_expansion, input_vocab=None, dropout=0.1, max_len=50, learned_pos_embeddings=False, device=torch.device("cuda" if torch.cuda.is_available() else "cpu")):
         '''A Transformer aggregator which encodes inputs into a single aggregated vector\n
         Init Inputs:
-            embed_size (int): The size of embeddings in the network
+            input_size (int): The size of embeddings in the network
             hidden_size (int): The size of hidden vectors in the network
             output_size (int): The size of the aggregated vector
             num_heads (int): The number of heads in both the encoder and decoder
@@ -200,9 +200,9 @@ class TransformerAggregator(nn.Module):
         Returns:
             output (Tensor): The return sequence of shape (target length, batch size, target tokens)'''
         super().__init__()
-        self.encoder = TransformerEncoder(embed_size=embed_size, hidden_size=hidden_size, num_heads=num_heads, num_layers=num_layers, forward_expansion=forward_expansion, input_vocab=input_vocab, dropout=dropout, max_len=max_len, learned_pos_embeddings=learned_pos_embeddings, device=device)
+        self.encoder = TransformerEncoder(input_size=input_size, hidden_size=hidden_size, num_heads=num_heads, num_layers=num_layers, forward_expansion=forward_expansion, input_vocab=input_vocab, dropout=dropout, max_len=max_len, learned_pos_embeddings=learned_pos_embeddings, device=device)
         self.out = nn.Linear(hidden_size, output_size)
-        self.aggregate_input_vector = nn.Parameter(torch.randn(embed_size, requires_grad=True), requires_grad=True) # Learned input vector for the aggregating position, like CLS for BERT
+        self.aggregate_input_vector = nn.Parameter(torch.randn(input_size, requires_grad=True), requires_grad=True) # Learned input vector for the aggregating position, like CLS for BERT
 
     def forward(self, input_seq):
         '''src (Tensor): The input sequence of shape (src length, batch size) or (src length, batch size, embed size)\n

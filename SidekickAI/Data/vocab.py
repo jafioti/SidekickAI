@@ -130,6 +130,8 @@ class Vocab:
             indexes (list or tree of lists of ints): THe collection of indexes to be converted to tokens'''
         if indexes is None:
             return []
+        if "Tensor" in str(type(indexes)): # Won't print anything if tensor is passed in
+            indexes = indexes.tolist()
         if isinstance(indexes, int):
             return self.index2word[int(indexes)]
         if len(indexes) == 0:

@@ -1,6 +1,5 @@
 import math, random
 from typing import Callable, Optional
-from warnings import warn
 
 import torch
 from torch import Tensor

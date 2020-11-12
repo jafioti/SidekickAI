@@ -19,18 +19,18 @@ class Dataset:
         num_workers (int) [Default: 0]: The number of multiprocessing processes to use to load data. The load/collate functions are called from these processes. If num_workers = 0, all loading will be done syncronously.
         data_chunk_size (int) [Default: None (Dynamic)]: The max number of examples to be loaded in at once. If left as none, will be decided dynamically based on full dataset size. Practically this will never be hit, but it is the theoretical max.
     '''
-    def __init__(self, batch_size, load_function, end_index, init_function=None, collate_function=None, start_index=0, preload=False, num_workers=0, data_chunk_size=None, **kwargs):
+    def __init__(self, batch_size, load_function, init_function=None, collate_function=None, start_index=0, preload=False, num_workers=0, data_chunk_size=None, **kwargs):
         self.__dict__.update(kwargs) # For any custom variables the user wants to pass in
         self.batch_size = batch_size
         self.preload = preload
         self.num_workers = num_workers if not preload else 0 # Haven't figured out a good way to preload with multiprocessing yet, so defaults to sync loading
-        self.start_index, self.end_index = start_index, end_index
+        self.start_index = start_index
         self.load_function = load_function
         self.collate_function = collate_function
         self.workers = []
         self.data, self.other = {}, {}
         
-        if init_function is not None: init_function(self, start_index, end_index)
+        if init_function is not None: init_function(self)
         for (key, value) in self.data.items(): assert isinstance(value, list), str(key) + " is not a list. All items in the data dict must be a list!" # Make sure all items in the data dict are lists
         assert len(set([len(value) for (key, value) in self.data.items()])) <= 1, "Not all lists are of the same length!" # Ensure all of the lists are of the same length
         self.end_index = start_index + len(self.data[list(self.data.keys())[0]]) # Ensure the end_index is not furthur than the data itself
@@ -44,7 +44,7 @@ class Dataset:
         self.waits = 0
         self.iterations = 0
         # Find dynamic data_chunk_size
-        self.data_chunk_size = min(min(max(int((self.end_index - self.start_index) / 5), 2000), 20000), self.end_index - self.start_index) if data_chunk_size is None else data_chunk_size # 2000: min, 20000: max | These are arbitrary
+        self.data_chunk_size = min(min(max(int(self.example_len() / 5), 2000), 20000), self.example_len()) if data_chunk_size is None else data_chunk_size # 2000: min, 20000: max | These are arbitrary
 
     def __len__(self):
         return len(self.data[list(self.data.keys())[0]]) // self.batch_size if not self.preload else len(self.batch_queue)
@@ -58,7 +58,7 @@ class Dataset:
 
     def __next__(self):
         self.iterations += 1
-        if self.iterations >= self.__len__(): # Stop iterating
+        if self.iterations > self.__len__(): # Stop iterating
             self.stop_iteration()
 
         while self.batch_queue.empty():
@@ -70,23 +70,29 @@ class Dataset:
                 self.waits = 0
             if len(self.workers) < self.num_workers or self.num_workers == 0:
                 if self.loaded_index >= self.end_index - self.batch_size: self.stop_iteration()
-                self.load_data(self.loaded_index, min(self.loaded_index + self.data_chunk_size, self.end_index - 1))
-                self.loaded_index = min(self.loaded_index + self.data_chunk_size, self.end_index)
+                self.load_data(self.loaded_index, min(self.loaded_index + self.data_chunk_size, self.example_len() - 1))
+                self.loaded_index = min(self.loaded_index + self.data_chunk_size, self.example_len() - 1)
                 self.waits = 0
                 time.sleep(2)
         try:
             return self.batch_queue.get()
         except: return None
 
+    def __getitem__(self, i):
+        if i + 1 > self.__len__(): raise Exception("Index out of range of the dataset!")
+        if self.preload: return self.batch_queue[i]
+        batch = self.collate_function([self.load_function({key:value[x] for (key, value) in self.data.items()}, self.other, i + x) for x in range(self.batch_size)], self.other)
+        return batch
+
     def stop_iteration(self):
-        self.loaded_index = self.start_index
+        self.loaded_index = 0
         self.iterations = 0
         self.waits = 0
         self.batch_queue = multiprocessing.JoinableQueue()
         raise StopIteration
 
     def reset(self):
-        self.loaded_index = self.start_index
+        self.loaded_index = 0
         self.iterations = 0
         self.waits = 0
         if not self.preload: self.batch_queue = multiprocessing.JoinableQueue()
@@ -103,19 +109,19 @@ class Dataset:
     def load_data(self, start_index, end_index):
         # If num_workers = 0, run load_job syncrounously
         if self.num_workers == 0:
-            load_job({key:value[start_index - self.start_index:end_index - self.start_index] for (key, value) in self.data.items()}, self.other, start_index, end_index, self.batch_size, self.load_function, self.collate_function, self.batch_queue)
+            load_job({key:value[start_index - self.start_index:end_index - self.start_index] for (key, value) in self.data.items()}, self.other, start_index, self.batch_size, self.load_function, self.collate_function, self.batch_queue)
         else:
             # Divide the data into num_workers slices to feed into each worker
             slice_size = (end_index - start_index) // self.num_workers
             self.workers = []
             for i in range(self.num_workers):
-                job = multiprocessing.Process(target=load_job, args=({key:value[start_index + (slice_size * i) - self.start_index:start_index + (slice_size * (i + 1)) - self.start_index] for (key, value) in self.data.items()}, self.other, start_index + (slice_size * i), start_index + (slice_size * (i + 1)), self.batch_size, self.load_function, self.collate_function, self.batch_queue))
+                job = multiprocessing.Process(target=load_job, args=({key:value[start_index + (slice_size * i) - self.start_index:start_index + (slice_size * (i + 1)) - self.start_index] for (key, value) in self.data.items()}, self.other, start_index + (slice_size * i), self.batch_size, self.load_function, self.collate_function, self.batch_queue))
                 job.start()
                 self.workers.append(job)
 
-def load_job(data, other, start_index, end_index, batch_size, load_function, collate_function, batch_queue): # The job to be run in each worker
+def load_job(data, other, start_index, batch_size, load_function, collate_function, batch_queue): # The job to be run in each worker
     end_index = start_index + len(data[list(data.keys())[0]])
-    for i in range(0, end_index - start_index - batch_size, batch_size):
+    for i in range(0, end_index - start_index, batch_size):
         if collate_function is None:
             batch = load_function({key:value[i] for (key, value) in data.items()}, other, start_index + i) # Pass in data, other, global index
         else:

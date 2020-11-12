@@ -10,7 +10,7 @@ from enum import Enum
 import torch.nn.functional as F
 import csv, random, re, os, math
 
-from SidekickAI.Utilities.functional import weighted_avg, batch_dot
+from SidekickAI.Utilities.functional import weighted_avg, batch_dot, batch_matrix_vector
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -28,8 +28,9 @@ class ContentAttention(nn.Module):
             key_mask: (batch size, sequence length) [optional]
         Returns:
             distribution = (sequence length, batch size) or average = (batch size, hidden size)'''
+        batch_size, sequence_length, key_hidden = keys.shape
         if self.query_converter is not None: query = self.query_converter(query)
-        distribution = batch_dot(x=query, y=keys)
+        distribution = batch_matrix_vector(x=keys, y=query) # Distribution: (batch size, seq len)
         if key_mask is not None: distribution.data.masked_fill_(key_mask.data, -float('inf'))
         if return_weighted_sum:
             return weighted_avg(keys, F.softmax(distribution, dim=1))

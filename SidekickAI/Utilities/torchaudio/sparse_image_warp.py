@@ -26,6 +26,7 @@ import torch
 # from torch.utils.data import DataLoader
 # from torch.utils.data import Dataset
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def time_warp(spec, W=5):
     spec = spec.view(1, spec.shape[0], spec.shape[1])
@@ -42,7 +43,7 @@ def time_warp(spec, W=5):
     # Uniform distribution from (0,W) with chance to be up to W negative
     dist_to_warp = random.randrange(-W, W)
     src_pts, dest_pts = torch.tensor([[[y, point_to_warp]]]), torch.tensor([[[y, point_to_warp + dist_to_warp]]])
-    warped_spectro, dense_flows = SparseImageWarp.sparse_image_warp(spec, src_pts, dest_pts)
+    warped_spectro, dense_flows = sparse_image_warp(spec, src_pts, dest_pts)
     return warped_spectro.squeeze(3)
 
 
@@ -379,7 +380,7 @@ def interpolate_bilinear(grid,
 
         # Expand alpha to [b, n, 1] so we can use broadcasting
         # (since the alpha values don't depend on the channel).
-        alpha = torch.unsqueeze(alpha, 2)
+        alpha = torch.unsqueeze(alpha, 2).to(device)
         alphas.append(alpha)
 
     flattened_grid = torch.reshape(
@@ -393,7 +394,7 @@ def interpolate_bilinear(grid,
     # code would be made simpler by using array_ops.gather_nd.
     def gather(y_coords, x_coords, name):
         linear_coordinates = batch_offsets + y_coords * width + x_coords
-        gathered_values = torch.gather(flattened_grid.t(), 1, linear_coordinates.view(1, -1))
+        gathered_values = torch.gather(flattened_grid.t().to(device), 1, linear_coordinates.view(1, -1).to(device))
         return torch.reshape(gathered_values,
                              [batch_size, num_queries, channels])
 

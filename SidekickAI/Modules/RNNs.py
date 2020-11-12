@@ -8,6 +8,7 @@ import torch.nn as nn
 from enum import Enum
 
 import torch.nn.functional as F
+from torch.distributions import Categorical
 import csv, random, re, os, math, time
 from SidekickAI.Modules.Attention import ContentAttention, LuongAttn
 
@@ -28,7 +29,7 @@ class BiRNNModule(nn.Module):
         #X: (seq len, batch size, features) or (num directions, seq len, batch size, features)
         if len(x.shape) == 4 and x.shape[0] == 1: x.squeeze_(0)
         # Pack
-        lengths = torch.LongTensor([x.shape[-3] for i in range(x.shape[-2])]).to(device)
+        lengths = torch.IntTensor([x.shape[-3] for i in range(x.shape[-2])])
         if len(x.data.shape) == 4:
             forward_out, forward_hidden = self.forward_rnn(nn.utils.rnn.pack_padded_sequence(x[0], lengths, enforce_sorted=False))
             backward_out, backward_hidden = self.backward_rnn(nn.utils.rnn.pack_padded_sequence(x[1], lengths, enforce_sorted=False))
@@ -83,6 +84,7 @@ class PyramidEncoderRNN(nn.Module): # MAY NEED TO FIX SHAPES
     def __init__(self, input_size, n_layers, rnn_type, dropout=0.):
         super().__init__()
         assert (rnn_type == nn.RNN or rnn_type == nn.LSTM or rnn_type == nn.GRU), "rnn_type must be a valid RNN type (torch.RNN, torch.LSTM, or torch.GRU)"
+        self.input_size = input_size
         self.n_layers = n_layers
         self.dropout = dropout
         self.rnn_type = rnn_type
@@ -91,7 +93,13 @@ class PyramidEncoderRNN(nn.Module): # MAY NEED TO FIX SHAPES
         self.rnns = nn.ModuleList([BiRNNModule(input_size=int(input_size * math.pow(2., float(i))), hidden_size=int(input_size * math.pow(2., float(i))), n_layers=1, rnn_type=rnn_type) for i in range(1, n_layers + 1)])
 
     def forward(self, input_seq, lengths=None, hidden=None):
-        # inputs: (seq_len, batch_size, embed_dim)
+        '''inputs: \n
+            input_seq: (seq_len, batch_size, input_dim)
+            lengths: (batch size)
+            hidden: 
+        outputs:
+            seq: (seq_len / 2 ^ n_layers + 1, batch size, input_dim * 2 ^ n_layers + 1)
+            hidden: None'''
         seq_len, batch_size, features = input_seq.shape
         
         # Pack if lengths are provided
@@ -120,8 +128,8 @@ class PyramidEncoderRNN(nn.Module): # MAY NEED TO FIX SHAPES
         return input_seq, None
 
 # Decoder based RNN using Luong Attention
-class LuongAttnDecoderRNN(nn.Module):
-    def __init__(self, input_size, hidden_size, output_size, n_layers=1, dropout=0.1):
+class DecoderRNN(nn.Module):
+    def __init__(self, input_size, hidden_size, output_size, use_attention=True, n_layers=1, dropout=0.1):
         super().__init__()
 
         # Keep for reference
@@ -129,13 +137,14 @@ class LuongAttnDecoderRNN(nn.Module):
         self.output_size = output_size
         self.n_layers = n_layers
         self.dropout = dropout
+        self.use_attention = use_attention
 
         # Define layers
         self.gru = nn.GRU(input_size, hidden_size, n_layers, dropout=(0 if n_layers == 1 else dropout))
-        self.concat = nn.Linear(hidden_size * 2, hidden_size)
+        if use_attention: 
+            self.concat = nn.Linear(hidden_size * 2, hidden_size)
+            self.attn = ContentAttention(hidden_size, hidden_size)
         self.out = nn.Linear(hidden_size, output_size)
-
-        self.attn = ContentAttention(hidden_size, hidden_size)
 
     def forward(self, input_step, last_hidden, encoder_outputs):
         # Note: we run this one step at a time
@@ -145,20 +154,23 @@ class LuongAttnDecoderRNN(nn.Module):
         # Forward through unidirectional GRU
         rnn_output, hidden = self.gru(input_step, last_hidden)
         rnn_output, _ = nn.utils.rnn.pad_packed_sequence(rnn_output)
-        # Calculate context vector from the current GRU output
-        context = self.attn(rnn_output.squeeze(0), encoder_outputs.transpose(0, 1), return_weighted_sum=True)
-        # Concatenate weighted context vector and GRU output using Luong eq. 5
-        concat_input = torch.cat((rnn_output.squeeze(0), context), 1)
-        concat_output = torch.tanh(self.concat(concat_input))
+        output = rnn_output.squeeze(0)
+
+        if self.use_attention:
+            # Calculate context vector from the current GRU output
+            context = self.attn(rnn_output.squeeze(0), encoder_outputs.transpose(0, 1), return_weighted_sum=True)
+            # Concatenate weighted context vector and GRU output using Luong eq. 5
+            concat_input = torch.cat((rnn_output.squeeze(0), context), 1)
+            output = torch.tanh(self.concat(concat_input))
         # Predict next word
-        output = F.softmax(self.out(concat_output), dim=-1)
+        output = F.softmax(self.out(output), dim=-1)
 
         return output, hidden
 
 class Seq2SeqRNN(nn.Module):
     '''A Seq2Seq RNN which embeds inputs and outputs distributions over the output vocab\n
     Init Inputs:
-        embed_size (int): The size of embeddings in the network
+        inpur_size (int): The size of embeddings / inputs to the network
         hidden_size (int): The RNN hidden size
         target_vocab (vocab): The target vocab
         encoder_layers (int): The number of layers in the transformer encoder
@@ -173,18 +185,18 @@ class Seq2SeqRNN(nn.Module):
         trg (Tensor) [default=None]: The target sequence of shape (trg length, batch size)
     Returns:
         output (Tensor): The return sequence of shape (target length, batch size, target tokens)'''
-    def __init__(self, embed_size, hidden_size, target_vocab, encoder_layers, decoder_layers, input_vocab=None, dropout=0., teacher_forcing_ratio=1., max_length=200, device=torch.device("cuda" if torch.cuda.is_available() else "cpu")):
+    def __init__(self, input_size, hidden_size, target_vocab, encoder_layers, decoder_layers, input_vocab=None, use_attention=True, dropout=0., teacher_forcing_ratio=1., max_length=200, device=torch.device("cuda" if torch.cuda.is_available() else "cpu")):
         super().__init__()
         self.hyperparameters = locals()
         self.device = device
         self.output_embedding = nn.Embedding(target_vocab.num_words, hidden_size)
         if input_vocab is not None: self.input_embedding = nn.Embedding(input_vocab.num_words, hidden_size) if input_vocab != target_vocab else self.output_embedding # If input and output vocabs are the same, reuse embeddings
         self.encoder = EncoderRNN(input_size=hidden_size, hidden_size=hidden_size, n_layers=encoder_layers, rnn_type=nn.GRU, dropout=dropout)
-        self.decoder = LuongAttnDecoderRNN(hidden_size, hidden_size * 2, target_vocab.num_words, decoder_layers, dropout)
+        self.decoder = DecoderRNN(hidden_size, hidden_size * 2, target_vocab.num_words, use_attention, decoder_layers, dropout)
         self.input_vocab, self.target_vocab = input_vocab, target_vocab
         self.max_length = max_length
         self.teacher_forcing_ratio = teacher_forcing_ratio
-        self.convert_input = nn.Linear(embed_size, hidden_size) if embed_size != hidden_size else None
+        self.convert_input = nn.Linear(input_size, hidden_size) if input_size != hidden_size else None
     
     def forward(self, input_seq, target_seq=None):
         # Ensure there is no SOS_token at the start of the input seq or target seq
@@ -193,7 +205,7 @@ class Seq2SeqRNN(nn.Module):
         # Warn if there is no EOS token at the end of the target
         if target_seq is not None and not (target_seq[-1] == self.target_vocab.EOS_token).any(): print("Warning: There is no EOS token at the end of the target passed to the model!")
 
-        input_lengths = torch.LongTensor([len(input_seq[:, i][(input_seq[:, i] != self.input_vocab.PAD_token)]) for i in range(input_seq.shape[1])]).to(self.device) if self.input_vocab is not None else torch.LongTensor([len(input_seq) for i in range(input_seq.shape[1])]).to(self.device)
+        input_lengths = torch.IntTensor([len(input_seq[:, i][(input_seq[:, i] != self.input_vocab.PAD_token)]) for i in range(input_seq.shape[1])]) if self.input_vocab is not None else torch.IntTensor([len(input_seq) for i in range(input_seq.shape[1])])
         if self.input_vocab is not None: input_seq = self.input_embedding(input_seq)
         if self.convert_input is not None: input_seq = self.convert_input(input_seq)
         encoder_outputs, encoder_hidden = self.encoder(input_seq, input_lengths)
@@ -214,3 +226,61 @@ class Seq2SeqRNN(nn.Module):
             if target_seq is None and torch.argmax(decoder_output, dim=-1)[0].item() == self.target_vocab.EOS_token: return final_outputs[:t+1]
 
         return final_outputs
+        
+        def forward_beam(self, input_seq, beam_size=1):
+            '''Run through model and do beam search decoding\n
+            Inputs:
+                input_seq (Tensor): The sequence of input tokens of shape (seq len, batch size) or (seq len, batch size, input dim)
+                beam_size (int): The size of the beam used during beam search. If beam size is 1, is equivalent to greedy decoding
+            Outputs:
+                outpsut_seq (list): A list of the output sequence in token indexes for each batch, of shape (seq len, batch size)'''
+            # Ensure there is no SOS_token at the start of the input seq or target seq
+            if self.input_vocab is not None and input_seq[0, 0].item() == self.input_vocab.SOS_token: input_seq = input_seq[1:]
+            if target_seq is not None and target_seq[0, 0].item() == self.target_vocab.SOS_token: target_seq = target_seq[1:]
+            # Warn if there is no EOS token at the end of the target
+            if target_seq is not None and not (target_seq[-1] == self.target_vocab.EOS_token).any(): print("Warning: There is no EOS token at the end of the target passed to the model!")
+
+            input_lengths = torch.IntTensor([len(input_seq[:, i][(input_seq[:, i] != self.input_vocab.PAD_token)]) for i in range(input_seq.shape[1])]) if self.input_vocab is not None else torch.IntTensor([len(input_seq) for i in range(input_seq.shape[1])])
+            if self.input_vocab is not None: input_seq = self.input_embedding(input_seq)
+            if self.convert_input is not None: input_seq = self.convert_input(input_seq)
+            encoder_outputs, encoder_hidden = self.encoder(input_seq, input_lengths)
+            # Create initial decoder input (start with SOS tokens for each sentence)
+            decoder_input = torch.LongTensor([[self.target_vocab.SOS_token for _ in range(input_seq.shape[1])]])
+            decoder_input = decoder_input.to(self.device)
+
+            # Set initial decoder hidden state to the encoder's final hidden state
+            decoder_hidden = encoder_hidden[:self.decoder.n_layers]
+
+            # Run beam search through decoder
+            batch_final_outputs = []
+            for batch in range(input_seq.shape[1]):
+                outputs, final_outputs = [self.target_vocab.SOS_token], []
+                best = [[self.target_vocab.SOS_token, 0, decoder_hidden[batch]]] # List for tracking the best tokens, scores, and hidden states
+                for t in range(self.max_length):
+                    # Feed through every branch and sample outputs
+                    sampled_tokens, sampled_scores, sampled_hiddens = [], [], []
+                    for i in range(len(best)):
+                        if best[i][0] != self.target_vocab.EOS_token:
+                            decoder_output, decoder_hidden = self.decoder(self.output_embedding(torch.LongTensor(best[i][0]).unsqueeze(0).unsqueeze(0).to(device)), best[i][2].unsqueeze(0))
+                            # Sample beam_size outputs
+                            output_dist = Categorical(decoder_output)
+                            sampled_tokens.append([output_dist.sample() for i in range(self.beam_width)])
+                            sampled_scores.append([output_dist.log_prob(sample) + best[i][1] for sample in sampled_tokens[-1]])
+                            best[i][2] = decoder_hidden[0]
+                        else:
+                            sampled_tokens.append([])
+                            sampled_scores.append([])
+                    # Select only top beam_width samples
+                    top_addresses = [[0, 0]]
+                    for i in range(self.beam_width):
+                        for branch in range(len(sampled_tokens)):
+                            for sample in range(len(sampled_tokens[branch])):
+                                if sampled_scores[branch][sample] > sampled_scores[top_addresses[-1][0]][top_addresses[-1][1]] and [branch, sample] not in top_addresses:
+                                    top_addresses[-1] = [branch, sample]
+                        top_addresses.append([0, 0])
+                    best = [[sampled_tokens[i][x], sampled_scores[i][x], best[i][2]] for i, x in top_addresses]
+                    outputs = [outputs[i] + sampled_tokens[i][x] for i, x in top_addresses]
+                    final_outputs += [[outputs[z], best[z][1]] for z in range(len(best)) if self.target_vocab.EOS_token in outputs[z]]
+                batch_final_outputs.append(final_outputs)
+
+        return batch_final_outputs
