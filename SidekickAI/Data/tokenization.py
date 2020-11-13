@@ -14,12 +14,14 @@ def tokenize_spacy(sentence, full_token_data=False, spacy_model=None):
         spacy_model: [default: None] the string of the spacy model ['en_core_web_sm', 'en_core_web_md', "en_core_web_lg'], defaults to medium
     Outputs:
         sentence: the same possibly jagged collection of inputs, now tokenized'''
-    global tokenizer
+    global tokenizer, loaded_spacy_model
     # Check if the initialized tokenizer is a spacy tokenizer
     import en_core_web_sm, en_core_web_md, en_core_web_lg
     models, model_names = [en_core_web_sm, en_core_web_md, en_core_web_lg], ["en_core_web_sm", "en_core_web_md", "en_core_web_lg"]
     assert spacy_model in model_names or spacy_model is None, "Unknown spacy model version: " + spacy_model
-    if (loaded_spacy_model != spacy_model and spacy_model is not None) or loaded_spacy_model is None: tokenizer = models[model_names.index(spacy_model)].load() if spacy_model is not None else models[1].load()
+    if (loaded_spacy_model != spacy_model and spacy_model is not None) or loaded_spacy_model is None:
+        tokenizer = models[model_names.index(spacy_model)].load() if spacy_model is not None else models[1].load()
+        loaded_spacy_model = spacy_model if spacy_model is not None else "en_core_web_md"
     
     if isinstance(sentence, str): # Tokenize immediately
         return tokenizer(sentence) if full_token_data else [token.text for token in tokenizer(sentence)]
@@ -89,7 +91,7 @@ def tokenize_moses(sentence, lowercase=True):
     if not isinstance(tokenizer, MosesTokenizer): tokenizer = MosesTokenizer(lang="en")
 
     if isinstance(sentence, str): # Tokenize string right away
-        return tokenizer.tokenize(sentence)
+        return tokenizer.tokenize(sentence.lower()) if lowercase else tokenizer.tokenize(sentence)
     
     # Traverse list, return linearized list of strings/pairs and insert index numbers into the main list
     main_list, linear_list = extract_bottom_items(main_list=sentence, base_types=[str])

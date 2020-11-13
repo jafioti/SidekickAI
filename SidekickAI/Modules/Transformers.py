@@ -155,7 +155,7 @@ class TransformerEncoder(nn.Module):
         '''seq: (seq len, 1) or (seq len)'''
         pe = torch.zeros(seq.shape[0], self.input_size, device=self.device)
         position = torch.arange(0, seq.shape[0], dtype=torch.float, device=self.device).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, self.input_size, 2).float().to(device) * (-math.log(10000.0) / self.input_size))
+        div_term = torch.exp(torch.arange(0, self.input_size, 2).float().to(self.device) * (-math.log(10000.0) / self.input_size))
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
         pe = pe.unsqueeze(0).transpose(0, 1)

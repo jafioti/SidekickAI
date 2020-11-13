@@ -143,7 +143,7 @@ def grid_tune(model_class, train_function, hyperparameters, other_parameters, pr
                 # Check if we already added this config
                 if current_config not in samples: samples.append(current_config)
                 
-    top_samples_to_print = min(top_samples_to_print, num_samples) # Limit the print samples to the number of samples we are testing
+    top_samples_to_print = min(top_samples_to_print, len(samples)) # Limit the print samples to the number of samples we are testing
 
     # Run samples through training
     fitnesses = []

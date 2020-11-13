@@ -27,13 +27,13 @@ class ContentAttention(nn.Module):
             keys: (batch size, sequence length, key hidden size)
             key_mask: (batch size, sequence length) [optional]
         Returns:
-            distribution = (sequence length, batch size) or average = (batch size, hidden size)'''
+            distribution = (batch size, sequence length) or average = (batch size, hidden size)'''
         batch_size, sequence_length, key_hidden = keys.shape
         if self.query_converter is not None: query = self.query_converter(query)
         distribution = batch_matrix_vector(x=keys, y=query) # Distribution: (batch size, seq len)
         if key_mask is not None: distribution.data.masked_fill_(key_mask.data, -float('inf'))
         if return_weighted_sum:
-            return weighted_avg(keys, F.softmax(distribution, dim=1))
+            return weighted_avg(keys, F.softmax(distribution, dim=-1))
         else:
             # In training we output log-softmax for NLL, otherwise normal softmax
             return F.log_softmax(distribution, dim=1) if self.training else F.softmax(distribution, dim=1)

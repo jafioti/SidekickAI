@@ -45,14 +45,14 @@ class BiRNNModule(nn.Module):
 
 # RNN-Based bidirectional encoder that takes entire sequence at once and returns output sequence along with final hidden state
 class EncoderRNN(nn.Module):
-    def __init__(self, input_size, hidden_size, n_layers, rnn_type, dropout=0.):
+    def __init__(self, input_size, hidden_size, n_layers, rnn_type, bidirectional=True, dropout=0.):
         super().__init__()
         assert (rnn_type == nn.RNN or rnn_type == nn.LSTM or rnn_type == nn.GRU), "rnn_type must be a valid RNN type (torch.RNN, torch.LSTM, or torch.GRU)"
         self.n_layers = n_layers
         self.hidden_size = hidden_size
         self.rnn_type = rnn_type
 
-        self.rnn = rnn_type(input_size=input_size, hidden_size=hidden_size, num_layers=n_layers, dropout=(0 if n_layers == 1 else dropout), bidirectional=True)
+        self.rnn = rnn_type(input_size=input_size, hidden_size=hidden_size, num_layers=n_layers, dropout=(0 if n_layers == 1 else dropout), bidirectional=bidirectional)
 
     def forward(self, inputs, lengths=None, hidden=None): # Takes the entire input sequence at once
         # inputs: (seq_len, batch_size, embed_dim)
@@ -129,7 +129,7 @@ class PyramidEncoderRNN(nn.Module): # MAY NEED TO FIX SHAPES
 
 # Decoder based RNN using Luong Attention
 class DecoderRNN(nn.Module):
-    def __init__(self, input_size, hidden_size, output_size, use_attention=True, n_layers=1, dropout=0.1):
+    def __init__(self, input_size, hidden_size, output_size, use_attention=True, rnn_type=nn.GRU, n_layers=1, dropout=0.1):
         super().__init__()
 
         # Keep for reference
@@ -140,19 +140,20 @@ class DecoderRNN(nn.Module):
         self.use_attention = use_attention
 
         # Define layers
-        self.gru = nn.GRU(input_size, hidden_size, n_layers, dropout=(0 if n_layers == 1 else dropout))
+        self.rnn = rnn_type(input_size, hidden_size, n_layers, dropout=(0 if n_layers == 1 else dropout))
         if use_attention: 
             self.concat = nn.Linear(hidden_size * 2, hidden_size)
             self.attn = ContentAttention(hidden_size, hidden_size)
         self.out = nn.Linear(hidden_size, output_size)
 
-    def forward(self, input_step, last_hidden, encoder_outputs):
+    def forward(self, input_step, last_hidden, encoder_outputs=None):
         # Note: we run this one step at a time
-        # input_step: (1, batch size, hidden dim)
+        # input_step: (batch size, hidden dim)
+        input_step.unsqueeze_(0)
         # Pack
         input_step = nn.utils.rnn.pack_padded_sequence(input_step, torch.LongTensor([1 for i in range(input_step.shape[1])]), enforce_sorted=False)
         # Forward through unidirectional GRU
-        rnn_output, hidden = self.gru(input_step, last_hidden)
+        rnn_output, hidden = self.rnn(input_step, last_hidden)
         rnn_output, _ = nn.utils.rnn.pad_packed_sequence(rnn_output)
         output = rnn_output.squeeze(0)
 
@@ -185,18 +186,18 @@ class Seq2SeqRNN(nn.Module):
         trg (Tensor) [default=None]: The target sequence of shape (trg length, batch size)
     Returns:
         output (Tensor): The return sequence of shape (target length, batch size, target tokens)'''
-    def __init__(self, input_size, hidden_size, target_vocab, encoder_layers, decoder_layers, input_vocab=None, use_attention=True, dropout=0., teacher_forcing_ratio=1., max_length=200, device=torch.device("cuda" if torch.cuda.is_available() else "cpu")):
+    def __init__(self, input_size, hidden_size, target_vocab, encoder_layers, decoder_layers, input_vocab=None, use_attention=True, dropout=0., rnn_type=nn.GRU, teacher_forcing_ratio=1., max_length=200, device=torch.device("cuda" if torch.cuda.is_available() else "cpu")):
         super().__init__()
         self.hyperparameters = locals()
         self.device = device
         self.output_embedding = nn.Embedding(target_vocab.num_words, hidden_size)
-        if input_vocab is not None: self.input_embedding = nn.Embedding(input_vocab.num_words, hidden_size) if input_vocab != target_vocab else self.output_embedding # If input and output vocabs are the same, reuse embeddings
-        self.encoder = EncoderRNN(input_size=hidden_size, hidden_size=hidden_size, n_layers=encoder_layers, rnn_type=nn.GRU, dropout=dropout)
-        self.decoder = DecoderRNN(hidden_size, hidden_size * 2, target_vocab.num_words, use_attention, decoder_layers, dropout)
+        if input_vocab is not None: self.input_embedding = nn.Embedding(input_vocab.num_words, input_size) if input_vocab != target_vocab else self.output_embedding # If input and output vocabs are the same, reuse embeddings
+        self.encoder = EncoderRNN(input_size=hidden_size, hidden_size=hidden_size, n_layers=encoder_layers, rnn_type=rnn_type, dropout=dropout)
+        self.decoder = DecoderRNN(input_size=hidden_size, hidden_size=hidden_size * 2, output_size=target_vocab.num_words, use_attention=use_attention, rnn_type=rnn_type, n_layers=decoder_layers, dropout=dropout)
         self.input_vocab, self.target_vocab = input_vocab, target_vocab
         self.max_length = max_length
         self.teacher_forcing_ratio = teacher_forcing_ratio
-        self.convert_input = nn.Linear(input_size, hidden_size) if input_size != hidden_size else None
+        self.convert_input = nn.Linear(input_size, hidden_size) if input_size != hidden_size and input_vocab != target_vocab else None
     
     def forward(self, input_seq, target_seq=None):
         # Ensure there is no SOS_token at the start of the input seq or target seq
@@ -210,7 +211,7 @@ class Seq2SeqRNN(nn.Module):
         if self.convert_input is not None: input_seq = self.convert_input(input_seq)
         encoder_outputs, encoder_hidden = self.encoder(input_seq, input_lengths)
         # Create initial decoder input (start with SOS tokens for each sentence)
-        decoder_input = torch.LongTensor([[self.target_vocab.SOS_token for _ in range(input_seq.shape[1])]])
+        decoder_input = torch.LongTensor([self.target_vocab.SOS_token for _ in range(input_seq.shape[1])])
         decoder_input = decoder_input.to(self.device)
 
         # Set initial decoder hidden state to the encoder's final hidden state
@@ -222,7 +223,7 @@ class Seq2SeqRNN(nn.Module):
             decoder_output, decoder_hidden = self.decoder(self.output_embedding(decoder_input), decoder_hidden, encoder_outputs)
             final_outputs[t] = decoder_output
             # Teacher forcing / Autoregressive
-            decoder_input = target_seq[t].view(1, -1) if random.random() < self.teacher_forcing_ratio and target_seq is not None else torch.argmax(decoder_output, dim=-1).view(1, -1)
+            decoder_input = target_seq[t].view(-1) if random.random() < self.teacher_forcing_ratio and target_seq is not None else torch.argmax(decoder_output, dim=-1).view(-1)
             if target_seq is None and torch.argmax(decoder_output, dim=-1)[0].item() == self.target_vocab.EOS_token: return final_outputs[:t+1]
 
         return final_outputs
