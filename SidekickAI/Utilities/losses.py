@@ -1,4 +1,5 @@
 import torch
+import torch.nn.functional as F
 
 def mask_nll_loss(output, target, mask, device):
     if len(output.shape) == 2: # Ensure there is a sequence length dimension
@@ -15,3 +16,11 @@ def mask_nll_loss(output, target, mask, device):
         mask_totals += mask_total.item()
         
     return loss, total_print_loss / mask_totals
+
+def nll_loss(output, target):
+    # output: (seq len, batch size, dist size)
+    # target: (seq len, batch size)
+    loss = 0
+    for t in range(len(output)):
+        loss += F.cross_entropy(output[t], target[t])
+    return loss

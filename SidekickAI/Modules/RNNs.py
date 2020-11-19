@@ -51,6 +51,7 @@ class EncoderRNN(nn.Module):
         self.n_layers = n_layers
         self.hidden_size = hidden_size
         self.rnn_type = rnn_type
+        self.bidirectional = bidirectional
 
         self.rnn = rnn_type(input_size=input_size, hidden_size=hidden_size, num_layers=n_layers, dropout=(0 if n_layers == 1 else dropout), bidirectional=bidirectional)
 
@@ -60,7 +61,7 @@ class EncoderRNN(nn.Module):
         seq_len = inputs.shape[0]
         
         # Pack and use lengths if provided
-        if lengths is not None: 
+        if lengths is not None:
             inputs = nn.utils.rnn.pack_padded_sequence(inputs, lengths, enforce_sorted=False)
         else:
             inputs = nn.utils.rnn.pack_padded_sequence(inputs, torch.LongTensor([seq_len for i in range(batch_size)]), enforce_sorted=False)
@@ -71,12 +72,13 @@ class EncoderRNN(nn.Module):
 
         # Select hidden state if using LSTM
         if self.rnn_type == nn.LSTM: hidden = hidden[0]
-        # Concat bidirectional hidden states
-        hidden = hidden.view(self.n_layers, 2, batch_size, self.hidden_size)
-        hidden = torch.cat((hidden[:, 0], hidden[:, 1]), dim=-1)
-        # Concat bidirectional outputs
-        outputs = outputs.view(seq_len, batch_size, 2, self.hidden_size)
-        outputs = torch.cat((outputs[:, :, 0], outputs[:, :, 1]), dim=-1)
+        if self.bidirectional:
+            # Concat bidirectional hidden states
+            hidden = hidden.view(self.n_layers, 2, batch_size, self.hidden_size)
+            hidden = torch.cat((hidden[:, 0], hidden[:, 1]), dim=-1)
+            # Concat bidirectional outputs
+            outputs = outputs.view(seq_len, batch_size, 2, self.hidden_size)
+            outputs = torch.cat((outputs[:, :, 0], outputs[:, :, 1]), dim=-1)
 
         return outputs, hidden
 

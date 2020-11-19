@@ -1,10 +1,13 @@
-import math
+import math, collections
 from typing import Optional, Tuple
 import warnings
 
+import numpy as np
+from scipy.special import softmax as npsoftmax
 import torch
 import torch.fft
 from torch import Tensor
+import torch.nn.functional as F
 
 __all__ = [
     "istft",
@@ -41,6 +44,8 @@ __all__ = [
     'mask_along_axis_iid',
     'sliding_window_cmn',
     'vad',
+    'ctc_greedy_decode',
+    'ctc_beam_decode'
 ]
 
 
@@ -2263,3 +2268,169 @@ def vad(
     res = waveform[:, pos - samplesLen_ns + flushedLen_ns:]
     # unpack batch
     return res.view(shape[:-1] + res.shape[-1:])
+
+
+def ctc_greedy_decode(distributions, blank_index):
+    '''distributions: (seq len, batch size, distribution size)'''
+    outputs = []
+    distributions = torch.argmax(distributions, dim=-1)
+    for b in range(distributions.shape[1]): # Run through batches
+        outputs.append(ctc_collapse_tokens(distributions[:, b].tolist(), blank_index))
+    return outputs
+
+def ctc_collapse_tokens(tokens, blank_index):
+        # Remove adjacent tokens
+        tokens = [n for i, n in enumerate(tokens) if i==0 or n != tokens[i-1]]
+        # Remove blanks
+        return [token for token in tokens if token != blank_index]
+
+# def ctc_beam_decode(distributions, beam_width, blank_index):
+#     '''distributions: (seq len, batch size, distribution size)'''
+#     # Ensure the probabilities are softmaxed by checking if the probs roughly sum to 1
+#     distributions = distributions.to(torch.device("cpu"))
+#     if not (0.99 < distributions[0][0].sum().item() < 1.01): distributions = F.softmax(distributions, dim=-1)
+
+#     final_outputs = []
+#     for b in range(distributions.shape[1]): # Each example in batch
+#         paths = [[-1]]
+#         scores = [1]
+#         for t in range(distributions.shape[0]): # Each timestep
+#             recent_tokens = []
+#             recent_scores = []
+#             recent_addresses = []
+#             # Run through every possible configuration, record recent tokens and recent scores if not already recorded
+#             for path in range(len(paths)):
+#                 temp_tokens = []
+#                 temp_scores = []
+#                 temp_addresses = []
+#                 for character in range(distributions.shape[-1]):
+#                     if ctc_collapse_tokens([paths[path][-1], character], blank_index) not in temp_tokens:
+#                         temp_tokens.append(ctc_collapse_tokens([paths[path][-1], character], blank_index))
+#                         temp_scores.append(distributions[t][b][character].item())
+#                         temp_addresses.append([path, character])
+#                     else:
+#                         temp_scores[temp_tokens.index(ctc_collapse_tokens([paths[path][-1], character], blank_index))] += distributions[t][b][character].item()
+#                 recent_tokens += temp_tokens
+#                 recent_addresses += temp_addresses
+#                 recent_scores += temp_scores
+#             # Multiply scores by the aggregated score so far of that path
+#             for score in range(len(recent_scores)):
+#                 recent_scores[score] *= scores[recent_addresses[score][0]]
+#             # Add top beam_width tokens to the paths
+#             top_scores = sorted(recent_scores, reverse=True)
+#             new_paths, scores = [], []
+#             for i in range(beam_width):
+#                 index = recent_scores.index(top_scores[i])
+#                 new_paths.append(paths[recent_addresses[index][0]] + ([recent_addresses[index][1]] if recent_addresses[index][1] != paths[recent_addresses[index][0]][-1] else []))
+#                 scores.append(top_scores[i])
+#             paths = new_paths
+#         final_outputs.append([token for token in paths[scores.index(max(scores))] if token != blank_index][1:]) # Add the path with the max score to the final output
+#     return final_outputs
+
+def ctc_beam_decode(probs, beam_size, blank_index, language_model=None, pad_index=0):
+    """
+    Performs inference for the given output probabilities.
+    Arguments:
+        probs: The output probabilities (e.g. post-softmax) for each
+            time step. Should be an array of shape (seq len, batch size, output dim).
+        beam_size (int): Size of the beam to use during inference.
+        blank (int): Index of the CTC blank label.
+    Returns the output label sequence in shape (batch size, seq len).
+    """
+    NEG_INF = -float("inf")
+
+    # Ensure that the tensor is softmaxed and is a numpy tensor
+    if not (0.99 < probs[0][0].sum().item() < 1.01): probs = F.softmax(probs, dim=-1)
+    probs = probs.detach().cpu()
+
+    def decode(probs):
+        lm_runs = 0
+        probs = probs / torch.sum(probs, dim=-1, keepdim=True) # Normalize prob distributions
+        def make_new_beam():
+            fn = lambda : (NEG_INF, NEG_INF, None)
+            return collections.defaultdict(fn)
+
+        def logsumexp(*args):
+            """Stable log sum exp."""
+            if all(a == NEG_INF for a in args):
+                return NEG_INF
+            a_max = max(args)
+            lsp = math.log(sum(math.exp(a - a_max) for a in args))
+            return a_max + lsp
+
+        T, S = probs.shape
+        probs = torch.log(probs) # Put into log space
+
+        # Elements in the beam are (prefix, (p_blank, p_no_blank))
+        # Initialize the beam with the empty sequence, a probability of
+        # 1 for ending in blank and zero for ending in non-blank
+        # (in log space).
+        beam = [(tuple(), (0.0, NEG_INF, None))]
+
+        for t in range(T): # Loop over time
+            # A default dictionary to store the next step candidates. Each value in the dictionary is a tuple of (blank end prob, non blank end prob)
+            next_beam = make_new_beam()
+
+            # Run the language model
+            lm_outputs = {} # lm_outputs is a dict for each prefix that has a distribution over letters as it's values
+            if language_model is not None and t > 0:
+                lm_runs += 1
+                with torch.autograd.no_grad():
+                    # Don't batch, this can be changed later for speed but I want to gaurentee best results
+                    for index, (prefix, (p_b, p_nb, hidden)) in enumerate(beam):
+                        if len(prefix) > 1:
+                            lm_outputs[prefix], hidden = language_model.forward_step(torch.LongTensor(prefix[-1:]).cuda().unsqueeze(1), hidden)
+                            lm_outputs[prefix] = torch.log_softmax(lm_outputs[prefix][-1][0], dim=-1).cpu() # Faster on cpu
+                            
+                            beam[index] = prefix, (p_b, p_nb, hidden)
+
+            for s in range(S): # Loop over vocab
+                p = float(probs[t, s].item()) # Get the prob for this timestep and this letter
+
+                # The variables p_b and p_nb are respectively the
+                # probabilities for the prefix given that it ends in a
+                # blank and does not end in a blank at this time step.
+                for prefix, (p_b, p_nb, hidden) in beam: # Loop over beam
+
+                    # If we propose a blank the prefix doesn't change.
+                    # Only the probability of ending in blank gets updated.
+                    if s == blank_index:
+                        n_p_b, n_p_nb, _ = next_beam[prefix]
+                        n_p_b = logsumexp(n_p_b, p_b + p, p_nb + p) # "Add" p into the aggregated blank end prob in some way
+                        next_beam[prefix] = (n_p_b, n_p_nb, hidden) # Update the probs in the next_beam
+                        continue
+
+                    # Extend the prefix by the new character s and add it to
+                    # the beam. Only the probability of not ending in blank
+                    # gets updated.
+                    end_t = prefix[-1] if prefix else None
+                    n_prefix = prefix + (s,)
+                    n_p_b, n_p_nb, _ = next_beam[n_prefix]
+                    lm_p = float(lm_outputs[prefix][s].item()) if prefix in lm_outputs and len(prefix) > 0 else None
+                    if s != end_t:
+                        n_p_nb = logsumexp(n_p_nb, p_b + p, p_nb + p)
+                    else:
+                        # We don't include the previous probability of not ending
+                        # in blank (p_nb) if s is repeated at the end. The CTC
+                        # algorithm merges characters not separated by a blank.
+                        n_p_nb = logsumexp(n_p_nb, p_b + p)
+                    
+                    # *NB* this would be a good place to include an LM score.
+                    next_beam[n_prefix] = (n_p_b + lm_p, n_p_nb + lm_p, hidden) if lm_p is not None else (n_p_b, n_p_nb, hidden)
+
+                    # If s is repeated at the end we also update the unchanged
+                    # prefix. This is the merging case.
+                    if s == end_t:
+                        n_p_b, n_p_nb, _ = next_beam[prefix]
+                        n_p_nb = logsumexp(n_p_nb, p_nb + p)
+                        next_beam[prefix] = (n_p_b, n_p_nb, hidden)
+
+            # Sort by a combination of the probs (p_b and p_nb) and trim the beam before moving on to the next time-step.
+            beam = sorted(next_beam.items(),
+                    key=lambda x : logsumexp(x[1][0], x[1][1]),
+                    reverse=True)
+            beam = beam[:beam_size]
+
+        return beam[0][0] # return the prefix of the best beam
+    
+    return [decode(probs[:, i]) for i in range(probs.shape[1])] # Feed in each example in the batch
