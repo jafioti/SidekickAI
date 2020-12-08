@@ -1,4 +1,6 @@
 import multiprocessing
+try: multiprocessing.set_start_method('spawn') # Make multiprocessing behave like Windows (spawn not fork)
+except: pass
 import time, torch, math, random
 from SidekickAI.Data import batching
 
@@ -19,26 +21,32 @@ class Dataset:
         num_workers (int) [Default: 0]: The number of multiprocessing processes to use to load data. The load/collate functions are called from these processes. If num_workers = 0, all loading will be done syncronously.
         data_chunk_size (int) [Default: None (Dynamic)]: The max number of examples to be loaded in at once. If left as none, will be decided dynamically based on full dataset size. Practically this will never be hit, but it is the theoretical max.
     '''
-    def __init__(self, batch_size, load_function, init_function=None, collate_function=None, start_index=0, preload=False, num_workers=0, data_chunk_size=None, **kwargs):
+    def __init__(self, batch_size, load_function, init_function=None, collate_function=None, start_index=0, preload=False, data_chunk_size=None, **kwargs):
         self.__dict__.update(kwargs) # For any custom variables the user wants to pass in
+        self.kwargs = kwargs
         self.batch_size = batch_size
         self.preload = preload
-        self.num_workers = num_workers if not preload else 0 # Haven't figured out a good way to preload with multiprocessing yet, so defaults to sync loading
+        self.num_workers = multiprocessing.cpu_count() - 1 if not preload else 0 # Haven't figured out a good way to preload with multiprocessing yet, so defaults to sync loading
         self.start_index = start_index
         self.load_function = load_function
+        self.init_function = init_function
         self.collate_function = collate_function
         self.workers = []
-        self.data, self.other = {}, {}
-        
-        if init_function is not None: init_function(self)
+
+        # If data and other are already provided, don't run the init function
+        if "data" not in kwargs or "other" not in kwargs:
+            self.data, self.other = {}, {}
+            if init_function is not None: init_function(self)
         for (key, value) in self.data.items(): assert isinstance(value, list), str(key) + " is not a list. All items in the data dict must be a list!" # Make sure all items in the data dict are lists
         assert len(set([len(value) for (key, value) in self.data.items()])) <= 1, "Not all lists are of the same length!" # Ensure all of the lists are of the same length
+        
         self.end_index = start_index + len(self.data[list(self.data.keys())[0]]) # Ensure the end_index is not furthur than the data itself
-        self.batch_queue = multiprocessing.JoinableQueue() if not preload else []
 
-        if preload:
-            # Call the loading function and join all of the created processes before returning fron the __init__ function
-            self.load_data(self.start_index, self.end_index)
+        if "batch_queue" not in kwargs or not self.preload:
+            self.batch_queue = multiprocessing.JoinableQueue() if not preload else []
+            if preload:
+                # Call the loading function and join all of the created processes before returning fron the __init__ function
+                self.load_data(self.start_index, self.end_index)
 
         self.loaded_index = start_index
         self.waits = 0
@@ -46,6 +54,7 @@ class Dataset:
         # Find dynamic data_chunk_size
         self.data_chunk_size = min(min(max(int(self.example_len() / 5), 2000), 20000), self.example_len()) if data_chunk_size is None else data_chunk_size # 2000: min, 20000: max | These are arbitrary
 
+    
     def __len__(self):
         return len(self.data[list(self.data.keys())[0]]) // self.batch_size if not self.preload else len(self.batch_queue)
 
@@ -79,10 +88,18 @@ class Dataset:
         except: return None
 
     def __getitem__(self, i):
-        if i + 1 > self.__len__(): raise Exception("Index out of range of the dataset!")
-        if self.preload: return self.batch_queue[i]
-        batch = self.collate_function([self.load_function({key:value[x] for (key, value) in self.data.items()}, self.other, i + x) for x in range(self.batch_size)], self.other)
-        return batch
+        if isinstance(i, slice):
+            # Return altered version of self
+            return self.__class__(batch_size=self.batch_size, load_function=self.load_function, init_function=self.init_function, collate_function=self.collate_function, start_index=self.start_index,
+                preload=self.preload, num_workers=self.num_workers, data_chunk_size=self.data_chunk_size, batch_queue=self.batch_queue[slice(int(math.floor(i.start / self.batch_size)) if i.start is not None else None, int(math.ceil(i.stop / self.batch_size)) if i.stop is not None else None, int(math.floor(i.step / self.batch_size)) if i.step is not None else None)] if self.preload else None, 
+                data={key:value[i] for (key, value) in self.data.items()}, other=self.other, **self.kwargs)
+        elif isinstance(i, int):
+            if i + 1 > self.__len__(): raise Exception("Index out of range of the dataset!")
+            if self.preload: return self.batch_queue[i]
+            batch = self.collate_function([self.load_function({key:value[x] for (key, value) in self.data.items()}, self.other, i + x) for x in range(self.batch_size)], self.other)
+            return batch
+        else:
+            raise Exception("Index is an unknown type! (Not an int or slice)")
 
     def stop_iteration(self):
         self.loaded_index = 0
@@ -105,6 +122,7 @@ class Dataset:
             lists = batching.shuffle_lists_retain_batches(self.batch_size, *self.data.values())
             for i, key in enumerate(self.data.keys()):
                 self.data[key] = lists[i]
+        return self
 
     def load_data(self, start_index, end_index):
         # If num_workers = 0, run load_job syncrounously

@@ -1,4 +1,4 @@
-import string, re
+import string, re, jiwer
 import numpy as np
 from collections import Counter
 
@@ -62,8 +62,8 @@ def word_error_rate(candidate, target, ignore_case=False, delimiter=' '):
     """Calculate word error rate (WER). WER compares target text and
     candidate text in word-level. 
     Inputs:
-        candidate (string): The candidate text being tested
-        target (string): The target (correct) string
+        candidate (string or list of strings): The candidate(s) text being tested
+        target (string or list of strings): The target (correct) string(s)
         ignore_case [Default: False] (bool): Should the metric be case sensitive
         delimeter [Default: ' '] (string): The character signifying a space
     Returns:
@@ -76,98 +76,64 @@ def word_error_rate(candidate, target, ignore_case=False, delimiter=' '):
         Iw is the number of words inserted,
         Nw is the number of words in the target
     """
-    if ignore_case == True:
-        target = target.lower()
-        candidate = candidate.lower()
+    if ignore_case:
+        target = target.lower() if isinstance(target, str) else [trg.lower() for trg in target]
+        candidate = candidate.lower() if isinstance(candidate, str) else [cnd.lower() for cnd in candidate]
 
-    target = target.split(delimiter)
-    candidate = candidate.split(delimiter)
-
-    if len(target) == 0: return 1
-
-    edit_distance = levenshtein_distance(target, candidate)
-    return float(edit_distance) / len(target)
+    return jiwer.wer(target, candidate)
 
 
-def character_error_rate(candidate, target, ignore_case=False, remove_space=False):
-    """Calculate charactor error rate (CER). CER compares target text and
-    candidate text in char-level. \n
+def match_error_rate(candidate, target, ignore_case=False, delimiter=' '):
+    """Calculate match error rate (MER). MER compares target text and
+    candidate text in word-level. 
     Inputs:
-        candidate (string): The candidate text being tested
-        target (string): The target (correct) string
+        candidate (string or list of strings): The candidate(s) text being tested
+        target (string or list of strings): The target (correct) string(s)
         ignore_case [Default: False] (bool): Should the metric be case sensitive
-        remove_space [Default: False] (bool): Should spaces be removed before the metric is calculated
+        delimeter [Default: ' '] (string): The character signifying a space
     Returns:
-        character_error_rate (float): The character error rate between the candidate and the target strings
-    CER is defined as:
-        CER = (Sc + Dc + Ic) / Nc
-    where
-        Sc is the number of characters substituted,
-        Dc is the number of characters deleted,
-        Ic is the number of characters inserted
-        Nc is the number of characters in the target
+        match_error_rate (float): The match error rate between the candidate and the target strings
     """
-    if ignore_case == True:
-        target = target.lower()
-        candidate = candidate.lower()
+    if ignore_case:
+        target = target.lower() if isinstance(target, str) else [trg.lower() for trg in target]
+        candidate = candidate.lower() if isinstance(candidate, str) else [cnd.lower() for cnd in candidate]
 
-    if remove_space == True:
-        target = target.replace(" ", "")
-        candidate = candidate.replace(" ", "")
+    return jiwer.mer(target, candidate)
 
-    if len(target) == 0: return 1
-
-    edit_distance = levenshtein_distance(target.split(), candidate.split())
-    return float(edit_distance) / len(target)
-
-def levenshtein_distance(sentence1, sentence2):
-    """Levenshtein distance is a string metric for measuring the difference
-    between two sequences. Informally, the levenshtein disctance is defined as
-    the minimum number of single-character edits (substitutions, insertions or
-    deletions) required to change one word into the other. This can naturally be expanded to words.\n
+def word_information_loss(candidate, target, ignore_case=False, delimiter=' '):
+    """Calculate word information loss (WIL). WIL compares target text and
+    candidate text in word-level. 
     Inputs:
-        sentence1 (string): The first sentence
-        sentence2 (string): The second sentence
+        candidate (string or list of strings): The candidate(s) text being tested
+        target (string or list of strings): The target (correct) string(s)
+        ignore_case [Default: False] (bool): Should the metric be case sensitive
+        delimeter [Default: ' '] (string): The character signifying a space
     Returns:
-        levenshtein_distance (float): The levenshtein distance between the two strings
+        word_information_loss (float): The word information loss between the candidate and the target strings
     """
-    s1_len = len(sentence1)
-    s2_len = len(sentence2)
+    if ignore_case:
+        target = target.lower() if isinstance(target, str) else [trg.lower() for trg in target]
+        candidate = candidate.lower() if isinstance(candidate, str) else [cnd.lower() for cnd in candidate]
 
-    # special case
-    if sentence1 == sentence2:
-        return 0
-    if s1_len == 0:
-        return s2_len
-    if s2_len == 0:
-        return s1_len
+    return jiwer.wil(target, candidate)
 
-    if s1_len < s2_len: # Ensure that sentence 1 is longer or equal to sentence 2
-        sentence1, sentence2 = sentence2, sentence1
-        s1_len, s2_len = s2_len, s1_len
+def asr_metrics(candidate, target, ignore_case=False, delimiter=' '):
+    """Calculate word error rate (WER), match error rate (MER), and word information loss (WIL).
+    Inputs:
+        candidate (string or list of strings): The candidate(s) text being tested
+        target (string or list of strings): The target (correct) string(s)
+        ignore_case [Default: False] (bool): Should the metric be case sensitive
+        delimeter [Default: ' '] (string): The character signifying a space
+    Returns:
+        word_error_rate (float): The word error rate between the candidate and the target strings
+        match_error_rate (float): The match error rate between the candidate and the target strings
+        word_information_loss (float): The word information loss between the candidate and the target strings
+    """
+    if ignore_case:
+        target = target.lower() if isinstance(target, str) else [trg.lower() for trg in target]
+        candidate = candidate.lower() if isinstance(candidate, str) else [cnd.lower() for cnd in candidate]
 
-    # use O(min(s1_len, s2_len)) space
-    distance = np.zeros((2, s2_len + 1), dtype=np.int32)
-
-    # initialize distance matrix
-    for j in range(0,s2_len + 1):
-        distance[0][j] = j
-
-    # calculate levenshtein distance
-    for i in range(1, s1_len + 1):
-        prev_row_idx = (i - 1) % 2
-        cur_row_idx = i % 2
-        distance[cur_row_idx][0] = i
-        for j in range(1, s2_len + 1):
-            if sentence1[i - 1] == sentence2[j - 1]:
-                distance[cur_row_idx][j] = distance[prev_row_idx][j - 1]
-            else:
-                s_num = distance[prev_row_idx][j - 1] + 1
-                i_num = distance[cur_row_idx][j - 1] + 1
-                d_num = distance[prev_row_idx][j] + 1
-                distance[cur_row_idx][j] = min(s_num, i_num, d_num)
-
-    return distance[s1_len % 2][s2_len]
+    return jiwer.compute_measures(target, candidate)
 
 
 # Helper function to normalize text (lowercase, remove punctuation, remove articles, and fix white space)

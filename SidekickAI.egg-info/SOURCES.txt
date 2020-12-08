@@ -2,6 +2,7 @@ README.md
 setup.cfg
 setup.py
 SidekickAI/__init__.py
+SidekickAI/test.py
 SidekickAI.egg-info/PKG-INFO
 SidekickAI.egg-info/SOURCES.txt
 SidekickAI.egg-info/dependency_links.txt

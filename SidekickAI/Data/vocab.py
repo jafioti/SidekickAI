@@ -2,7 +2,7 @@
 # This file contains the Vocab class and teh function to load the BertWordPeice vocab
 
 class Vocab:
-    def __init__(self, name, PAD_token=0, SOS_token=1, EOS_token=2):
+    def __init__(self, name, PAD_token=0, SOS_token=1, EOS_token=2, add_default_tokens=True):
         '''The vocab object that contains all data about a single vocabulary.\n
         Vocabularies are simply collections of tokens with mappings to and from indexes, so they can be used for many different things\n
         Inputs:
@@ -10,17 +10,25 @@ class Vocab:
             PAD_token [Default: 0] (int): The index of the padding token
             SOS_token [Default: 1] (int): The index of the start-of-sentence token
             EOS_token [Default: 2] (int): The index of the end-of-sentence token
+            add_default_tokens [Default: true] (bool): Add the PAD, SOS, and EOS tokens automatically
         '''        
 
         self.name = name
         self.trimmed = False
-        self.word2index = {"PAD": PAD_token, "SOS": SOS_token, "EOS": EOS_token}
-        self.word2count = {"PAD": 0, "SOS":0, "EOS":0}
-        self.index2word = {PAD_token: "PAD", SOS_token: "SOS", EOS_token: "EOS"}
-        self.num_words = 3  # Count SOS, EOS, PAD
-        self.PAD_token = PAD_token # Used for padding short sentences
-        self.SOS_token = SOS_token # Start-of-sentence token
-        self.EOS_token = EOS_token # End-of-sentence token
+        if add_default_tokens:
+            self.word2index = {"PAD": PAD_token, "SOS": SOS_token, "EOS": EOS_token}
+            self.word2count = {"PAD": 0, "SOS":0, "EOS":0}
+            self.index2word = {PAD_token: "PAD", SOS_token: "SOS", EOS_token: "EOS"}
+            self.num_words = 3  # Count SOS, EOS, PAD
+            self.PAD_token = PAD_token # Used for padding short sentences
+            self.SOS_token = SOS_token # Start-of-sentence token
+            self.EOS_token = EOS_token # End-of-sentence token
+        else:
+            self.word2index = {}
+            self.word2count = {}
+            self.index2word = {}
+            self.num_words = 0  # Count SOS, EOS, PAD
+            self.PAD_token, self.SOS_token, self.EOS_token = None, None, None
 
     def add_sentence(self, sentence, custom_tokenization_function=None): 
         '''Add sentence tokenized by spaces or custom function\n
@@ -181,13 +189,44 @@ def getBertWordPieceVocab(additional_tokens=None):
     return(voc)
 
 # Make a vocab containing the alphabet and puncuation
-def getAlphabetVocab(additional_tokens=None):
+def getAlphabetVocab(additional_tokens=None, add_default_tokens=True):
     assert additional_tokens is None or (isinstance(additional_tokens, list) and isinstance(additional_tokens[0], str))
     from string import ascii_lowercase
-    voc = Vocab("alphabetVocab")
-    for letter in ascii_lowercase:
-        voc.add_word(str(letter))
-    voc.add_list([".", "'", "!", "?", " ", ",", ";", "-"])
+    voc = Vocab("alphabetVocab", add_default_tokens=add_default_tokens)
+    # for letter in ascii_lowercase: # Add letters
+    #     voc.add_word(str(letter))
+    # voc.add_list([".", "'", "!", "?", " ", ",", ";", "-"]) # Add other symbols
+    voc.add_list([
+    "'",  # 0
+    " ",  # 1
+    "a",  # 2
+    "b",
+    "c",
+    "d",
+    "e",
+    "f",
+    "g",
+    "h",
+    "i",
+    "j",
+    "k",
+    "l",
+    "m",
+    "n",
+    "o",
+    "p",
+    "q",
+    "r",
+    "s",
+    "t",
+    "u",
+    "v",
+    "w",
+    "x",
+    "y",
+    "z",  # 27
+    "_",  # 28, blank
+    ])
     if additional_tokens is not None:
         for i in range(len(additional_tokens)):
             voc.add_word(additional_tokens[i])
