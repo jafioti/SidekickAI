@@ -37,10 +37,10 @@ class Dataset:
         if "data" not in kwargs or "other" not in kwargs:
             self.data, self.other = {}, {}
             if init_function is not None: init_function(self)
-        for (key, value) in self.data.items(): assert isinstance(value, list), str(key) + " is not a list. All items in the data dict must be a list!" # Make sure all items in the data dict are lists
-        assert len(set([len(value) for (key, value) in self.data.items()])) <= 1, "Not all lists are of the same length!" # Ensure all of the lists are of the same length
-        
-        self.end_index = start_index + len(self.data[list(self.data.keys())[0]]) # Ensure the end_index is not furthur than the data itself
+        if len(self.data) > 0:
+            for (key, value) in self.data.items(): assert isinstance(value, list), str(key) + " is not a list. All items in the data dict must be a list!" # Make sure all items in the data dict are lists
+            assert len(set([len(value) for (key, value) in self.data.items()])) <= 1, "Not all lists are of the same length!" # Ensure all of the lists are of the same length
+            self.end_index = start_index + len(self.data[list(self.data.keys())[0]]) # Ensure the end_index is not furthur than the data itself
 
         if "batch_queue" not in kwargs or not self.preload:
             self.batch_queue = multiprocessing.JoinableQueue() if not preload else []
@@ -64,6 +64,12 @@ class Dataset:
     def __iter__(self):
         self.reset()
         return iter(self.batch_queue) if self.preload else self
+
+    def sample(self):
+        if not self.preload:
+            return self.__next__()
+        else:
+            return self.batch_queue[random.randint(0, len(self.batch_queue) - 1)]
 
     def __next__(self):
         self.iterations += 1
